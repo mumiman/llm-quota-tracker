@@ -73,13 +73,24 @@ function getInitialState() {
         resetsHistory: [
           { id: 'h1', title: 'Full reset (Weekly + 5 hr)', usedAt: 'Used Nov 10, 9:15 PM GMT+7' }
         ]
+      },
+      kimi: {
+        id: 'kimi',
+        name: 'Kimi (kimi.ai)',
+        summary: 'Kimi k2 / Thinking & Long-Context quota.',
+        cliCommand: 'kimi --model kimi-k2-thinking',
+        strengths: ['deep', 'agentic', 'fast'],
+        limits: [
+          { id: '5h', label: 'Current session (5h / Thinking)', usedPct: 12, resetText: 'Resets in 4h 20m', countdown: '4h 20m' },
+          { id: 'weekly', label: 'This week (Weekly limit)', usedPct: 24, resetText: 'Resets in 5d 12h', countdown: '5d 12h' }
+        ]
       }
     },
     history: [
-      { ts: '09:00', antigravity: 65, claude: 10, codex: 40 },
-      { ts: '10:00', antigravity: 70, claude: 18, codex: 45 },
-      { ts: '11:00', antigravity: 74, claude: 25, codex: 50 },
-      { ts: '12:00', antigravity: 78, claude: 32, codex: 55 }
+      { ts: '09:00', antigravity: 65, claude: 10, codex: 40, kimi: 5 },
+      { ts: '10:00', antigravity: 70, claude: 18, codex: 45, kimi: 10 },
+      { ts: '11:00', antigravity: 74, claude: 25, codex: 50, kimi: 18 },
+      { ts: '12:00', antigravity: 78, claude: 14, codex: 55, kimi: 24 }
     ]
   };
 }
@@ -135,6 +146,9 @@ function recordUsage(state, { providerId, groupId, amount = 10 }) {
   } else if (providerId === 'codex') {
     state.providers.codex.limits[0].usedPct = Math.min(100, state.providers.codex.limits[0].usedPct + amount);
     state.providers.codex.limits[1].usedPct = Math.min(100, state.providers.codex.limits[1].usedPct + Math.max(1, Math.round(amount * 0.5)));
+  } else if (providerId === 'kimi') {
+    state.providers.kimi.limits[0].usedPct = Math.min(100, state.providers.kimi.limits[0].usedPct + amount);
+    state.providers.kimi.limits[1].usedPct = Math.min(100, state.providers.kimi.limits[1].usedPct + Math.max(1, Math.round(amount * 0.4)));
   }
 
   const now = new Date();
@@ -145,12 +159,14 @@ function recordUsage(state, { providerId, groupId, amount = 10 }) {
   );
   const claudePeak = Math.max(...state.providers.claude.metrics.map(m => m.usedPct));
   const codexPeak = Math.max(...state.providers.codex.limits.map(l => l.usedPct));
+  const kimiPeak = state.providers.kimi ? Math.max(...state.providers.kimi.limits.map(l => l.usedPct)) : 0;
 
   state.history.push({
     ts: `${hh}:${mm}`,
     antigravity: agyPeak,
     claude: claudePeak,
-    codex: codexPeak
+    codex: codexPeak,
+    kimi: kimiPeak
   });
   if (state.history.length > 16) state.history.shift();
 
@@ -198,6 +214,16 @@ function applyReset(state, { providerId, groupId, ticketId }) {
     } else {
       state.providers.claude.metrics.forEach(m => { m.usedPct = 0; });
       state.providers.claude.summary = 'Fresh week. 0% of your weekly limit used.';
+    }
+    return { state: saveState(state) };
+  }
+
+  if (providerId === 'kimi') {
+    if (groupId === '5h' || groupId === 'weekly') {
+      const target = state.providers.kimi.limits.find(l => l.id === groupId);
+      if (target) target.usedPct = 0;
+    } else {
+      state.providers.kimi.limits.forEach(l => { l.usedPct = 0; });
     }
     return { state: saveState(state) };
   }

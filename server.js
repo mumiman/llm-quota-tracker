@@ -136,6 +136,11 @@ function createServer() {
         } else if (providerId === 'antigravity') {
           if (typeof sessionUsedPct === 'number') state.providers.antigravity.groups[0].items[0].usedPct = Math.min(100, Math.max(0, sessionUsedPct));
           if (typeof weeklyUsedPct === 'number') state.providers.antigravity.groups[1].items[1].usedPct = Math.min(100, Math.max(0, weeklyUsedPct));
+        } else if (providerId === 'kimi' && state.providers.kimi) {
+          if (typeof sessionUsedPct === 'number') state.providers.kimi.limits[0].usedPct = Math.min(100, Math.max(0, sessionUsedPct));
+          if (typeof weeklyUsedPct === 'number') state.providers.kimi.limits[1].usedPct = Math.min(100, Math.max(0, weeklyUsedPct));
+          if (sessionResetText) state.providers.kimi.limits[0].resetText = sessionResetText;
+          if (weeklyResetText) state.providers.kimi.limits[1].resetText = weeklyResetText;
         }
 
         saveState(state);
@@ -173,7 +178,7 @@ function createServer() {
           if (parsed.weeklyResetText) state.providers.claude.metrics[1].resetText = parsed.weeklyResetText;
           if (typeof parsed.fableUsedPct === 'number') {
             const fableIdx = state.providers.claude.metrics.findIndex(m => m.id === 'fable');
-            const fableMetric = { id: 'fable', label: 'Fable', usedPct: parsed.fableUsedPct, resetText: parsed.weeklyResetText || 'Resets Friday 11:00 PM', countdown: '5d 21h' };
+            const fableMetric = { id: 'fable', label: 'Fable', subtitle: 'Up to 50% of your weekly limit', usedPct: parsed.fableUsedPct, resetText: parsed.weeklyResetText || 'Resets Friday 11:00 PM', countdown: '5d 21h' };
             if (fableIdx >= 0) state.providers.claude.metrics[fableIdx] = fableMetric;
             else state.providers.claude.metrics.push(fableMetric);
           }
@@ -188,6 +193,11 @@ function createServer() {
           if (typeof parsed.claudeGptWeeklyUsedPct === 'number') state.providers.antigravity.groups[1].items[1].usedPct = parsed.claudeGptWeeklyUsedPct;
           if (typeof parsed.claudeGpt5hUsedPct === 'number') state.providers.antigravity.groups[1].items[0].usedPct = parsed.claudeGpt5hUsedPct;
           if (typeof parsed.argonWeeklyUsedPct === 'number') state.providers.antigravity.groups[2].items[0].usedPct = parsed.argonWeeklyUsedPct;
+        } else if (providerId === 'kimi' && state.providers.kimi) {
+          if (typeof parsed.sessionUsedPct === 'number') state.providers.kimi.limits[0].usedPct = parsed.sessionUsedPct;
+          if (parsed.sessionResetText) state.providers.kimi.limits[0].resetText = parsed.sessionResetText;
+          if (typeof parsed.weeklyUsedPct === 'number') state.providers.kimi.limits[1].usedPct = parsed.weeklyUsedPct;
+          if (parsed.weeklyResetText) state.providers.kimi.limits[1].resetText = parsed.weeklyResetText;
         }
 
         saveState(state);

@@ -97,13 +97,15 @@ function scanLocalEnvironments() {
   const agy = inspectProviderDir(path.join(home, '.gemini'));
   const claude = inspectProviderDir(path.join(home, '.claude'));
   const codex = inspectProviderDir(path.join(home, '.codex'));
+  const kimi = inspectProviderDir(path.join(home, '.kimi'));
 
   return {
     scannedAt: new Date().toISOString(),
     sources: {
       antigravity: { path: '~/.gemini', ...agy },
       claude: { path: '~/.claude', ...claude },
-      codex: { path: '~/.codex', ...codex }
+      codex: { path: '~/.codex', ...codex },
+      kimi: { path: '~/.kimi', ...kimi }
     }
   };
 }

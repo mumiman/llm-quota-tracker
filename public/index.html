@@ -95,8 +95,8 @@
       <!-- Smart Alerts Banner -->
       <div id="alertsArea" class="space-y-2"></div>
 
-      <!-- 3 Provider Cards -->
-      <div id="cardsGrid" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+      <!-- 4 Provider Cards -->
+      <div id="cardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3"></div>
 
       <!-- Click-to-Inspect Reset Detail Panel -->
       <div id="resetDetailPanel" class="card rounded-xl p-4 space-y-3"></div>
@@ -302,7 +302,8 @@
       const urls = {
         claude: 'https://claude.ai/settings/usage',
         codex: 'https://chatgpt.com/codex/settings/usage',
-        antigravity: 'https://aistudio.google.com/'
+        antigravity: 'https://aistudio.google.com/',
+        kimi: 'https://www.kimi.com/'
       };
       window.open(urls[providerId], '_blank', 'noopener');
     }
@@ -366,7 +367,8 @@
       const items = [
         { id: 'claude', title: 'Claude (Anthropic)', signInLabel: 'Open Claude Usage', btnColor: 'bg-amber-600 hover:bg-amber-500', placeholder: 'sk-ant-api03-...' },
         { id: 'codex', title: 'Codex (ChatGPT / OpenAI)', signInLabel: 'Open ChatGPT Usage', btnColor: 'bg-emerald-600 hover:bg-emerald-500', placeholder: 'sk-proj-...' },
-        { id: 'antigravity', title: 'Antigravity (Google)', signInLabel: 'Open Google AI', btnColor: 'bg-blue-600 hover:bg-blue-500', placeholder: 'AIzaSy...' }
+        { id: 'antigravity', title: 'Antigravity (Google)', signInLabel: 'Open Google AI', btnColor: 'bg-blue-600 hover:bg-blue-500', placeholder: 'AIzaSy...' },
+        { id: 'kimi', title: 'Kimi (kimi.ai / Moonshot)', signInLabel: 'Open Kimi.ai', btnColor: 'bg-purple-600 hover:bg-purple-500', placeholder: 'sk-kimi-... (Moonshot API Key)' }
       ];
 
       area.innerHTML = `
@@ -517,12 +519,12 @@
       const bottom = document.getElementById('bottomGrid');
       if (compactMode) {
         shell.classList.add('max-w-md', 'mx-auto');
-        grid.classList.remove('md:grid-cols-3');
+        grid.classList.remove('md:grid-cols-2', 'lg:grid-cols-4');
         bottom.classList.remove('lg:grid-cols-2');
         document.getElementById('modeBtn').textContent = 'Full Mode';
       } else {
         shell.classList.remove('max-w-md', 'mx-auto');
-        grid.classList.add('md:grid-cols-3');
+        grid.classList.add('md:grid-cols-2', 'lg:grid-cols-4');
         bottom.classList.add('lg:grid-cols-2');
         document.getElementById('modeBtn').textContent = 'Tray Mode';
       }
@@ -540,11 +542,13 @@
       const agyPeak = Math.max(...appState.providers.antigravity.groups.flatMap(g => g.items.map(i => i.usedPct)));
       const claudePeak = Math.max(...appState.providers.claude.metrics.map(m => m.usedPct));
       const codexPeak = Math.max(...appState.providers.codex.limits.map(l => l.usedPct));
+      const kimiPeak = appState.providers.kimi ? Math.max(...appState.providers.kimi.limits.map(l => l.usedPct)) : 0;
       const dot = (pct) => pct >= 75 ? '🔴' : pct >= 50 ? '🟡' : '🟢';
       document.getElementById('traySummary').innerHTML = `
         <span class="px-2 py-0.5 rounded bg-black/20">${dot(agyPeak)} AGY: ${agyPeak}%</span>
         <span class="px-2 py-0.5 rounded bg-black/20">${dot(claudePeak)} Claude: ${claudePeak}%</span>
         <span class="px-2 py-0.5 rounded bg-black/20">${dot(codexPeak)} Codex: ${codexPeak}%</span>
+        <span class="px-2 py-0.5 rounded bg-black/20">${dot(kimiPeak)} Kimi: ${kimiPeak}%</span>
       `;
     }
 
@@ -563,7 +567,7 @@
     }
 
     function renderCards() {
-      const { antigravity: agy, claude, codex } = appState.providers;
+      const { antigravity: agy, claude, codex, kimi } = appState.providers;
       const isSel = (id) => selectedProvider === id;
 
       const agyHtml = `
@@ -612,7 +616,20 @@
         </div>
       `;
 
-      document.getElementById('cardsGrid').innerHTML = agyHtml + claudeHtml + codexHtml;
+      const kimiHtml = kimi ? `
+        <div onclick="selectProviderCard('kimi')"
+             class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-3 transition"
+             style="${isSel('kimi') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
+          <div class="flex items-center justify-between border-b border-theme pb-2">
+            <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('kimi')} Kimi (kimi.ai)</span>
+            <span class="text-xs ${isSel('kimi') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('kimi') ? '● Reset View' : 'Click for Reset →'}</span>
+          </div>
+          <div class="text-xs text-muted">${kimi.summary}</div>
+          ${kimi.limits.map(lim => `<div class="pt-2 border-t border-theme">${renderBarRow(lim)}</div>`).join('')}
+        </div>
+      ` : '';
+
+      document.getElementById('cardsGrid').innerHTML = agyHtml + claudeHtml + codexHtml + kimiHtml;
     }
 
     function renderResetDetail() {
@@ -661,6 +678,30 @@
                   ${grp.items.map(it => `<div class="flex justify-between text-muted"><span>${it.label.split(' ')[0]}</span><span class="font-mono ${getTextColorClass(it.usedPct)}">${it.usedPct}% used</span></div>`).join('')}
                 </div>
                 <button onclick="applyReset('antigravity', '${grp.id}')" class="w-full py-1.5 rounded-lg border border-theme hover:border-blue-500 font-medium transition">Reset Pool to 0%</button>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else if (selectedProvider === 'kimi' && appState.providers.kimi) {
+        const kimi = appState.providers.kimi;
+        panel.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-theme pb-2.5">
+            <div>
+              <h3 class="text-sm font-semibold">Kimi (kimi.ai) — Session & Weekly Reset Schedule</h3>
+              <p class="text-xs text-muted">Reset 5h Thinking window or Weekly limit back to 0% used</p>
+            </div>
+            <button onclick="applyReset('kimi', 'all')" class="px-3 py-1 rounded-lg border border-theme hover:border-blue-500 text-xs font-medium transition">
+              Reset All Kimi
+            </button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+            ${kimi.limits.map(lim => `
+              <div class="p-3 rounded-lg border border-theme bg-black/15 flex items-center justify-between gap-2">
+                <div>
+                  <div class="font-semibold">${lim.label} (<span class="font-mono ${getTextColorClass(lim.usedPct)}">${lim.usedPct}% used</span>)</div>
+                  <div class="text-muted">${lim.resetText}</div>
+                </div>
+                <button onclick="applyReset('kimi', '${lim.id}')" class="px-3 py-1.5 rounded-lg border border-theme hover:border-blue-500 font-medium transition">Reset to 0%</button>
               </div>
             `).join('')}
           </div>
@@ -724,8 +765,8 @@
         container.innerHTML = `
           <div class="space-y-2">
             <div class="grid grid-cols-2 gap-2">
-              <select id="handoffFrom" class="w-full card rounded px-2 py-1"><option>Claude</option><option>Antigravity (Claude/GPT)</option><option>Codex</option></select>
-              <select id="handoffTo" class="w-full card rounded px-2 py-1"><option>Antigravity (Gemini 4 Argon)</option><option>Codex (o3-mini)</option><option>Claude (Sonnet)</option></select>
+              <select id="handoffFrom" class="w-full card rounded px-2 py-1"><option>Claude</option><option>Antigravity (Claude/GPT)</option><option>Codex</option><option>Kimi (kimi.ai)</option></select>
+              <select id="handoffTo" class="w-full card rounded px-2 py-1"><option>Antigravity (Gemini 4 Argon)</option><option>Kimi (kimi-k2-thinking)</option><option>Codex (o3-mini)</option><option>Claude (Sonnet)</option></select>
             </div>
             <input id="handoffSummary" type="text" placeholder="Task summary (e.g. Refactoring auth middleware)" class="w-full card rounded px-2 py-1.5" />
             <input id="handoffFiles" type="text" placeholder="Active files (e.g. server.js, src/router.js)" class="w-full card rounded px-2 py-1.5" />
@@ -739,19 +780,21 @@
       } else {
         const hist = appState.history || [];
         const w = 420, h = 150, pad = 24;
-        const pts = (key) => hist.map((pt, i) => `${(pad + (i / Math.max(1, hist.length - 1)) * (w - pad * 2)).toFixed(1)},${(h - pad - (pt[key] / 100) * (h - pad * 2)).toFixed(1)}`).join(' ');
+        const pts = (key) => hist.map((pt, i) => `${(pad + (i / Math.max(1, hist.length - 1)) * (w - pad * 2)).toFixed(1)},${(h - pad - ((pt[key] || 0) / 100) * (h - pad * 2)).toFixed(1)}`).join(' ');
         container.innerHTML = `
           <div class="space-y-2">
-            <div class="flex items-center gap-4 text-xs">
+            <div class="flex flex-wrap items-center gap-3 text-xs">
               <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> Antigravity</span>
               <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Claude</span>
               <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Codex</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span> Kimi</span>
             </div>
             <svg viewBox="0 0 ${w} ${h}" class="w-full h-40 rounded bg-black/20 border border-theme">
               <line x1="${pad}" y1="${h - pad - 0.75 * (h - pad * 2)}" x2="${w - pad}" y2="${h - pad - 0.75 * (h - pad * 2)}" stroke="#ef4444" stroke-dasharray="4 3" stroke-opacity="0.5" />
               <polyline fill="none" stroke="#3b82f6" stroke-width="2" points="${pts('antigravity')}" />
               <polyline fill="none" stroke="#10b981" stroke-width="2" points="${pts('claude')}" />
               <polyline fill="none" stroke="#f59e0b" stroke-width="2" points="${pts('codex')}" />
+              <polyline fill="none" stroke="#a855f7" stroke-width="2" points="${pts('kimi')}" />
             </svg>
           </div>
         `;

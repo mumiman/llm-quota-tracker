@@ -10,6 +10,9 @@
   "host_permissions": [
     "https://claude.ai/*",
     "https://chatgpt.com/*",
+    "https://www.kimi.com/*",
+    "https://kimi.ai/*",
+    "https://kimi.moonshot.cn/*",
     "http://localhost:3456/*",
     "http://127.0.0.1:3456/*"
   ],

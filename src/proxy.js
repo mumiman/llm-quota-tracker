@@ -89,6 +89,27 @@ async function forwardToProvider(providerId, accConfig, payload) {
     return { status: res.status, headers: res.headers, data };
   }
 
+  if (providerId === 'kimi') {
+    const url = `${accConfig.baseUrl}/v1/chat/completions`;
+    const body = {
+      model: payload.model && payload.model !== 'auto' ? payload.model : 'kimi-k2-0711-preview',
+      messages: payload.messages || [{ role: 'user', content: 'Hello' }],
+      max_tokens: payload.max_tokens || 512,
+      temperature: payload.temperature ?? 0.6
+    };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accConfig.apiKey}`
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000)
+    });
+    const data = await res.json().catch(() => ({}));
+    return { status: res.status, headers: res.headers, data };
+  }
+
   throw new Error(`Unsupported provider: ${providerId}`);
 }
 

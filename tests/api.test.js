@@ -265,3 +265,36 @@ test('POST /api/reset resets Claude Fable quota individually without clearing Th
   assert.equal(fable.usedPct, 0);
   assert.equal(week.usedPct, 11);
 });
+
+test('Kimi (kimi.ai) supports usage tracking, reset, and parse-usage', async () => {
+  const usageRes = await fetch(`${baseUrl}/api/usage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'kimi', amount: 30 })
+  });
+  assert.equal(usageRes.status, 200);
+  const usageData = await usageRes.json();
+  assert.equal(usageData.state.providers.kimi.limits[0].usedPct, 42);
+
+  const resetRes = await fetch(`${baseUrl}/api/reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'kimi', groupId: '5h' })
+  });
+  assert.equal(resetRes.status, 200);
+  const resetData = await resetRes.json();
+  assert.equal(resetData.state.providers.kimi.limits[0].usedPct, 0);
+
+  const parseRes = await fetch(`${baseUrl}/api/accounts/parse-usage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      providerId: 'kimi',
+      rawText: 'Kimi Thinking 28% used\nResets in 3h 10m\nWeekly 15% used\nResets in 4d 5h'
+    })
+  });
+  assert.equal(parseRes.status, 200);
+  const parseData = await parseRes.json();
+  assert.equal(parseData.state.providers.kimi.limits[0].usedPct, 28);
+  assert.equal(parseData.state.providers.kimi.limits[1].usedPct, 15);
+});

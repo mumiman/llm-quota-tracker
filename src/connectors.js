@@ -49,7 +49,7 @@ function parseRateLimitHeaders(headers, provider) {
     };
   }
 
-  if (provider === 'codex') {
+  if (provider === 'codex' || provider === 'kimi') {
     const reqLimit = Number(get('x-ratelimit-limit-requests'));
     const reqRem = Number(get('x-ratelimit-remaining-requests'));
     const tokLimit = Number(get('x-ratelimit-limit-tokens'));
@@ -172,8 +172,41 @@ async function syncAntigravityAccount(accConfig) {
   }
 }
 
+async function syncKimiAccount(accConfig) {
+  if (!accConfig || !accConfig.apiKey) {
+    return { ok: false, connected: false, status: 'No API key configured (using local ~/.kimi watcher)' };
+  }
+  const url = `${accConfig.baseUrl}/v1/models`;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accConfig.apiKey}`
+      },
+      signal: AbortSignal.timeout(8000)
+    });
+    const parsed = parseRateLimitHeaders(res.headers, 'kimi');
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, connected: false, status: `Invalid Kimi API key (HTTP ${res.status})` };
+    }
+    if (!res.ok) {
+      return { ok: false, connected: false, status: `API returned HTTP ${res.status}`, rateLimit: parsed };
+    }
+    const body = await res.json().catch(() => ({}));
+    const modelCount = Array.isArray(body.data) ? body.data.length : 0;
+    return {
+      ok: true,
+      connected: true,
+      status: `Connected (${modelCount} Kimi/Moonshot models accessible)`,
+      rateLimit: parsed
+    };
+  } catch (err) {
+    return { ok: false, connected: false, status: `Connection failed: ${err.message}` };
+  }
+}
+
 /**
- * Syncs all configured accounts (API keys + local ~/.gemini, ~/.claude, ~/.codex logs)
+ * Syncs all configured accounts (API keys + local ~/.gemini, ~/.claude, ~/.codex, ~/.kimi logs)
  * and updates quota-state.json when real metrics are returned.
  */
 async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
@@ -181,10 +214,11 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
   const state = loadState();
   const localScan = scanLocalEnvironments();
 
-  const [agyRes, claudeRes, codexRes] = await Promise.all([
+  const [agyRes, claudeRes, codexRes, kimiRes] = await Promise.all([
     syncAntigravityAccount(accounts.providers.antigravity),
     syncClaudeAccount(accounts.providers.claude),
-    syncCodexAccount(accounts.providers.codex)
+    syncCodexAccount(accounts.providers.codex),
+    syncKimiAccount(accounts.providers.kimi)
   ]);
 
   const nowIso = new Date().toISOString();
@@ -207,6 +241,14 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
     ? codexRes.status
     : (localScan.sources.codex.detected ? `Local Watcher Active (${localScan.sources.codex.recent5hEvents} events/5h)` : codexRes.status);
 
+  if (accounts.providers.kimi) {
+    accounts.providers.kimi.connected = kimiRes.connected || localScan.sources.kimi?.detected;
+    accounts.providers.kimi.lastSyncAt = nowIso;
+    accounts.providers.kimi.lastStatus = kimiRes.ok
+      ? kimiRes.status
+      : (localScan.sources.kimi?.detected ? `Local Watcher Active (${localScan.sources.kimi.recent5hEvents} events/5h)` : kimiRes.status);
+  }
+
   saveAccounts(accounts);
 
   // Apply real rate-limit headers if returned by upstream APIs
@@ -225,6 +267,13 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
     }
   }
 
+  if (kimiRes.ok && kimiRes.rateLimit?.hasHeaders && state.providers.kimi) {
+    state.providers.kimi.limits[0].usedPct = kimiRes.rateLimit.usedPct;
+    if (kimiRes.rateLimit.resetText) {
+      state.providers.kimi.limits[0].resetText = kimiRes.rateLimit.resetText;
+    }
+  }
+
   saveState(state);
 
   return {
@@ -232,7 +281,8 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
     results: {
       antigravity: agyRes,
       claude: claudeRes,
-      codex: codexRes
+      codex: codexRes,
+      kimi: kimiRes
     },
     localScan,
     state
@@ -287,6 +337,21 @@ function parseUsagePageText(providerId, rawText) {
     };
   }
 
+  if (providerId === 'kimi') {
+    const usedMatches = [...text.matchAll(/(\d{1,3})%\s*used/gi)].map(m => Number(m[1]));
+    const leftMatches = [...text.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
+    const resetMatches = [...text.matchAll(/(Resets (?:in|at) [^\n]+)/gi)].map(m => m[1].trim());
+    const sessionUsed = usedMatches[0] ?? (leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null);
+    const weeklyUsed = usedMatches[1] ?? (leftMatches[1] !== undefined ? Math.max(0, 100 - leftMatches[1]) : null);
+    return {
+      ok: sessionUsed !== null || weeklyUsed !== null,
+      sessionUsedPct: sessionUsed,
+      weeklyUsedPct: weeklyUsed,
+      sessionResetText: resetMatches[0] ?? null,
+      weeklyResetText: resetMatches[1] ?? null
+    };
+  }
+
   return { ok: false };
 }
 
@@ -296,5 +361,6 @@ module.exports = {
   syncClaudeAccount,
   syncCodexAccount,
   syncAntigravityAccount,
+  syncKimiAccount,
   syncAllAccounts
 };

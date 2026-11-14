@@ -14,6 +14,10 @@ document.getElementById('openCodexBtn').addEventListener('click', () => {
   chrome.tabs.create({ url: 'https://chatgpt.com/codex/settings/usage' });
 });
 
+document.getElementById('openKimiBtn').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'https://www.kimi.com/' });
+});
+
 document.getElementById('syncTabBtn').addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url) return showStatus('No active tab found', true);
@@ -21,7 +25,8 @@ document.getElementById('syncTabBtn').addEventListener('click', async () => {
   let providerId = null;
   if (tab.url.includes('claude.ai')) providerId = 'claude';
   else if (tab.url.includes('chatgpt.com') || tab.url.includes('openai.com')) providerId = 'codex';
-  else return showStatus('Open claude.ai/settings/usage or chatgpt.com/codex/settings/usage first.', true);
+  else if (tab.url.includes('kimi.com') || tab.url.includes('kimi.ai') || tab.url.includes('moonshot.cn')) providerId = 'kimi';
+  else return showStatus('Open Claude, ChatGPT/Codex, or Kimi.ai usage page first.', true);
 
   try {
     const [{ result: rawText }] = await chrome.scripting.executeScript({

@@ -36,6 +36,15 @@ function getDefaultAccounts() {
         lastSyncAt: null,
         lastStatus: 'Not synced yet',
         accountLabel: 'OpenAI / Codex'
+      },
+      kimi: {
+        mode: 'local_and_api',
+        apiKey: process.env.MOONSHOT_API_KEY || process.env.KIMI_API_KEY || '',
+        baseUrl: 'https://api.moonshot.ai',
+        connected: Boolean(process.env.MOONSHOT_API_KEY || process.env.KIMI_API_KEY),
+        lastSyncAt: null,
+        lastStatus: 'Not synced yet',
+        accountLabel: 'Moonshot / Kimi.ai'
       }
     }
   };
@@ -202,6 +211,24 @@ function autoDetectLocalLogins() {
     detected.antigravity = 'cli_session';
   } else {
     detected.antigravity = 'not_found';
+  }
+
+  // 4. Kimi.ai (~/.kimi or MOONSHOT_API_KEY / KIMI_API_KEY)
+  const kimiDir = path.join(home, '.kimi');
+  const kimiKey = process.env.MOONSHOT_API_KEY || process.env.KIMI_API_KEY;
+  if (kimiKey) {
+    acc.providers.kimi.apiKey = kimiKey;
+    acc.providers.kimi.connected = true;
+    acc.providers.kimi.mode = 'api_key';
+    acc.providers.kimi.lastStatus = 'Connected via MOONSHOT_API_KEY / KIMI_API_KEY env';
+    detected.kimi = 'env_api_key';
+  } else if (fs.existsSync(kimiDir)) {
+    acc.providers.kimi.connected = true;
+    acc.providers.kimi.mode = 'cli_oauth';
+    acc.providers.kimi.lastStatus = 'Connected via Kimi CLI session (~/.kimi)';
+    detected.kimi = 'cli_session';
+  } else {
+    detected.kimi = 'not_found';
   }
 
   saveAccounts(acc);

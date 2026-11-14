@@ -75,11 +75,41 @@ function evaluateRoutes(state, taskType = 'deep') {
     resetHint: codex.limits[1].resetText
   });
 
+  // 4. Kimi (kimi.ai)
+  const kimi = state.providers.kimi;
+  let kimiPeak = 0;
+  if (kimi) {
+    kimiPeak = Math.max(...kimi.limits.map(l => l.usedPct));
+    const kimiHeadroom = 100 - kimiPeak;
+    let kimiScore = kimiHeadroom;
+    if (kimi.strengths[0] === taskType) kimiScore += 20;
+    else if (kimi.strengths.includes(taskType)) kimiScore += 10;
+    if (kimiPeak >= 75) kimiScore -= 45;
+
+    candidates.push({
+      providerId: 'kimi',
+      subId: 'kimi_default',
+      label: 'Kimi (kimi.ai)',
+      usedPct: kimiPeak,
+      headroom: kimiHeadroom,
+      score: kimiScore,
+      command: kimi.cliCommand,
+      resetHint: kimi.limits[0].resetText
+    });
+  }
+
   candidates.sort((a, b) => b.score - a.score);
   const best = candidates[0];
 
   // Generate Smart Reset Advisor alerts
   const alerts = [];
+  if (kimi && kimiPeak >= 75) {
+    alerts.push({
+      severity: 'critical',
+      provider: 'kimi',
+      message: `Kimi (kimi.ai) is at ${kimiPeak}% used (${kimi.limits[0].resetText}) — switch to ${best.label}.`
+    });
+  }
   if (agy.groups[1].items[1].usedPct >= 75) {
     alerts.push({
       severity: 'critical',

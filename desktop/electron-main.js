@@ -19,7 +19,8 @@ let serverPort = 3456;
 const PROVIDER_AUTH_URLS = {
   claude: 'https://claude.ai/settings/usage',
   codex: 'https://chatgpt.com/codex/settings/usage',
-  antigravity: 'https://aistudio.google.com/'
+  antigravity: 'https://aistudio.google.com/',
+  kimi: 'https://www.kimi.com/'
 };
 
 function createWindow(port) {
