@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Quota Tracker & Smart Switcher</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #161922;
+      --card-hover: #1c202b;
+      --border: #262b38;
+      --text: #e6e8ef;
+      --muted: #8b93a7;
+    }
+    body.light {
+      --bg: #f5f6fa;
+      --card: #ffffff;
+      --card-hover: #f9fafb;
+      --border: #e2e5ef;
+      --text: #111827;
+      --muted: #6b7280;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .card {
+      background-color: var(--card);
+      border: 1px solid var(--border);
+    }
+    .card-interactive:hover {
+      background-color: var(--card-hover);
+    }
+    .border-theme {
+      border-color: var(--border);
+    }
+    .text-muted {
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body class="min-h-screen antialiased">
+  <div class="max-w-6xl mx-auto px-4 py-4 space-y-4">
+    <!-- Simulated OS Menu Bar / Tray Strip -->
+    <div class="card rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div class="flex items-center gap-3">
+        <span class="font-semibold tracking-tight flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          Menu Bar:
+        </span>
+        <div id="traySummary" class="flex flex-wrap items-center gap-2 font-mono text-xs"></div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="openAccountsModal()" class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition">
+          Connect Accounts & Proxy
+        </button>
+        <button onclick="syncNow()" id="syncBtn" class="px-2.5 py-1 rounded-md border border-theme hover:opacity-80 transition">
+          Sync Now
+        </button>
+        <button onclick="toggleTheme()" class="px-2.5 py-1 rounded-md border border-theme hover:opacity-80 transition" id="themeBtn">
+          Light Mode
+        </button>
+        <button onclick="toggleCompactMode()" class="px-2.5 py-1 rounded-md border border-theme hover:opacity-80 transition" id="modeBtn">
+          Tray Mode
+        </button>
+      </div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="appShell" class="space-y-4 transition-all duration-300">
+      <!-- Header & Simulation Controls -->
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-lg font-bold tracking-tight">LLM Quota Tracker & Smart Switcher</h1>
+          <p class="text-xs text-muted">Unified <code class="px-1 py-0.5 rounded bg-black/20">% used</code> tracking for Antigravity, Claude & Codex — bars turn <span class="text-red-500 font-semibold">Red</span> near 100%. Click any card for Reset details.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <select id="taskSelect" onchange="fetchState()" class="card rounded-lg px-2.5 py-1.5 text-xs focus:outline-none">
+            <option value="deep">Task: Deep Architecture / Refactor</option>
+            <option value="agentic">Task: Multi-File Agentic Workflow</option>
+            <option value="fast">Task: Quick Inline / CLI Script</option>
+          </select>
+          <button onclick="simulatePrompt()" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-medium transition">
+            + Simulate Usage
+          </button>
+          <button onclick="resetDemo()" class="card px-3 py-1.5 rounded-lg hover:opacity-80 transition">
+            Reset Demo
+          </button>
+        </div>
+      </div>
+
+      <!-- Smart Alerts Banner -->
+      <div id="alertsArea" class="space-y-2"></div>
+
+      <!-- 3 Provider Cards -->
+      <div id="cardsGrid" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+
+      <!-- Click-to-Inspect Reset Detail Panel -->
+      <div id="resetDetailPanel" class="card rounded-xl p-4 space-y-3"></div>
+
+      <!-- Bottom Grid: Smart Auto-Router + Context Handoff / Burn-Rate -->
+      <div id="bottomGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div class="card rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between border-b border-theme pb-2">
+            <h2 class="text-sm font-semibold">Smart Auto-Router & 1-Click Switch</h2>
+            <span class="text-xs text-muted">Ranked by headroom & task fit</span>
+          </div>
+          <div id="routerContent" class="space-y-2.5 text-xs"></div>
+        </div>
+
+        <div class="card rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between border-b border-theme pb-2">
+            <h2 class="text-sm font-semibold">Context Handoff & Usage Trend</h2>
+            <div class="flex gap-1 text-xs">
+              <button onclick="setBottomTab('handoff')" id="tabHandoff" class="px-2 py-0.5 rounded bg-blue-600 text-white">Handoff Prompt</button>
+              <button onclick="setBottomTab('trend')" id="tabTrend" class="px-2 py-0.5 rounded border border-theme text-muted">Burn-Rate Chart</button>
+            </div>
+          </div>
+          <div id="bottomTabContent" class="text-xs"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Connect Accounts & Unified Proxy Modal -->
+  <div id="accountsModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+    <div class="card rounded-2xl max-w-2xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-theme pb-3">
+        <div>
+          <h2 class="text-base font-bold">Connect Real Accounts & Unified Proxy</h2>
+          <p class="text-xs text-muted">Keys are saved locally in <code>data/accounts.json</code> and masked in UI. Also watches <code>~/.gemini</code>, <code>~/.claude</code>, <code>~/.codex</code>.</p>
+        </div>
+        <button onclick="closeAccountsModal()" class="px-2.5 py-1 rounded border border-theme text-xs hover:opacity-80">Close</button>
+      </div>
+
+      <div id="accountsFormArea" class="space-y-3 text-xs"></div>
+
+      <!-- Unified Local Proxy Info -->
+      <div class="p-3 rounded-xl border border-blue-500/40 bg-blue-500/10 space-y-2 text-xs">
+        <div class="font-semibold text-blue-400">Unified Local Proxy Endpoint (Auto-Tracks Quota & Fails Over on 429)</div>
+        <p class="text-muted">Point Cursor, Continue, Cline, or any OpenAI-compatible client to this local URL:</p>
+        <div class="flex items-center gap-2">
+          <code id="proxyUrlCode" class="flex-1 px-2.5 py-1.5 rounded bg-black/30 font-mono"></code>
+          <button id="copyProxyBtn" onclick="copyText(document.getElementById('proxyUrlCode').textContent, 'copyProxyBtn')" class="px-3 py-1.5 rounded bg-blue-600 text-white font-medium">Copy URL</button>
+        </div>
+      </div>
+
+      <div id="syncStatusBox" class="hidden p-3 rounded-xl border border-theme bg-black/20 text-xs space-y-1"></div>
+    </div>
+  </div>
+
+  <script>
+    let appState = null;
+    let appRouting = null;
+    let appAccounts = null;
+    let selectedProvider = 'codex';
+    let codexResetTab = 'available';
+    let bottomTab = 'handoff';
+    let compactMode = false;
+    let handoffOutput = '';
+
+    function getBarColor(usedPct) {
+      if (usedPct >= 75) return '#ef4444';
+      if (usedPct >= 50) return '#f59e0b';
+      return '#3b82f6';
+    }
+
+    function getTextColorClass(usedPct) {
+      if (usedPct >= 75) return 'text-red-500 font-semibold';
+      if (usedPct >= 50) return 'text-amber-500 font-medium';
+      return 'text-muted';
+    }
+
+    function renderBarRow({ label, usedPct, resetText }) {
+      const color = getBarColor(usedPct);
+      const textCls = getTextColorClass(usedPct);
+      const widthPct = usedPct > 0 ? Math.max(3, Math.min(100, usedPct)) : 0;
+      return `
+        <div class="space-y-1">
+          <div class="flex items-center justify-between text-xs gap-2">
+            <span class="font-medium truncate">${label}</span>
+            <span class="font-mono tabular-nums shrink-0 ${textCls}">${usedPct}% used</span>
+          </div>
+          <div class="w-full h-2 rounded-full bg-black/25 overflow-hidden border border-theme">
+            <div class="h-full rounded-full transition-all duration-300" style="width: ${widthPct}%; background-color: ${color};"></div>
+          </div>
+          <div class="text-xs text-muted">${resetText}</div>
+        </div>
+      `;
+    }
+
+    async function fetchState() {
+      const taskType = document.getElementById('taskSelect').value;
+      const res = await fetch(`/api/state?taskType=${encodeURIComponent(taskType)}`);
+      const data = await res.json();
+      appState = data.state;
+      appRouting = data.routing;
+      appAccounts = data.accounts;
+      render();
+    }
+
+    async function syncNow() {
+      const btn = document.getElementById('syncBtn');
+      btn.textContent = 'Syncing...';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ applyLocalEstimates: true })
+        });
+        const data = await res.json();
+        appState = data.state;
+        appRouting = data.routing;
+        appAccounts = data.accounts;
+        render();
+
+        const box = document.getElementById('syncStatusBox');
+        if (box) {
+          box.classList.remove('hidden');
+          box.innerHTML = `
+            <div class="font-semibold text-emerald-400">Synced at ${new Date(data.syncedAt).toLocaleTimeString()}</div>
+            <div>• Antigravity: ${appAccounts.providers.antigravity.lastStatus}</div>
+            <div>• Claude: ${appAccounts.providers.claude.lastStatus}</div>
+            <div>• Codex: ${appAccounts.providers.codex.lastStatus}</div>
+          `;
+        }
+      } finally {
+        btn.textContent = 'Sync Now';
+        btn.disabled = false;
+      }
+    }
+
+    async function saveProviderKey(providerId) {
+      const keyInput = document.getElementById(`key_${providerId}`);
+      const urlInput = document.getElementById(`url_${providerId}`);
+      const payload = {
+        providerId,
+        apiKey: keyInput ? keyInput.value : undefined,
+        baseUrl: urlInput ? urlInput.value : undefined
+      };
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      appAccounts = data.accounts;
+      await syncNow();
+      renderAccountsForm();
+      render();
+    }
+
+    function openAccountsModal() {
+      document.getElementById('accountsModal').classList.remove('hidden');
+      document.getElementById('proxyUrlCode').textContent = `${window.location.origin}/proxy/v1/chat/completions`;
+      renderAccountsForm();
+    }
+
+    function closeAccountsModal() {
+      document.getElementById('accountsModal').classList.add('hidden');
+    }
+
+    function renderAccountsForm() {
+      if (!appAccounts) return;
+      const area = document.getElementById('accountsFormArea');
+      const items = [
+        { id: 'antigravity', title: 'Antigravity / Google Gemini', placeholder: 'AIzaSy... (Gemini API Key)' },
+        { id: 'claude', title: 'Claude / Anthropic', placeholder: 'sk-ant-api03-... (Anthropic API Key)' },
+        { id: 'codex', title: 'Codex / OpenAI', placeholder: 'sk-proj-... (OpenAI API Key)' }
+      ];
+
+      area.innerHTML = items.map(item => {
+        const p = appAccounts.providers[item.id];
+        return `
+          <div class="p-3 rounded-xl border border-theme bg-black/15 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold">${item.title}</span>
+              <span class="px-2 py-0.5 rounded font-mono ${p.connected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-muted'}">
+                ${p.connected ? 'Connected' : 'Not Connected'}
+              </span>
+            </div>
+            <div class="text-muted">${p.lastStatus || 'Ready to connect'} ${p.hasApiKey ? `• Saved: <code>${p.apiKeyMasked}</code>` : ''}</div>
+            <div class="grid grid-cols-1 sm:grid-cols-5 gap-2">
+              <input id="key_${item.id}" type="password" placeholder="${item.placeholder}" class="sm:col-span-3 card rounded-lg px-2.5 py-1.5" />
+              <input id="url_${item.id}" type="text" value="${p.baseUrl}" class="sm:col-span-1 card rounded-lg px-2 py-1.5 text-muted" />
+              <button onclick="saveProviderKey('${item.id}')" class="sm:col-span-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-2.5 py-1.5 font-medium transition">
+                Save & Test
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function simulatePrompt() {
+      const taskType = document.getElementById('taskSelect').value;
+      const targetProvider = selectedProvider || 'claude';
+      const groupId = targetProvider === 'antigravity' ? 'claude_gpt_models' : null;
+      const res = await fetch('/api/usage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerId: targetProvider, groupId, amount: 15, taskType })
+      });
+      const data = await res.json();
+      appState = data.state;
+      appRouting = data.routing;
+      render();
+    }
+
+    async function applyReset(providerId, groupId, ticketId) {
+      const res = await fetch('/api/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerId, groupId, ticketId })
+      });
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+      appState = data.state;
+      appRouting = data.routing;
+      render();
+    }
+
+    async function resetDemo() {
+      const res = await fetch('/api/demo/reset', { method: 'POST' });
+      const data = await res.json();
+      appState = data.state;
+      appRouting = data.routing;
+      render();
+    }
+
+    async function generateHandoff() {
+      const res = await fetch('/api/handoff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromProvider: document.getElementById('handoffFrom').value,
+          toProvider: document.getElementById('handoffTo').value,
+          taskSummary: document.getElementById('handoffSummary').value,
+          currentFiles: document.getElementById('handoffFiles').value
+        })
+      });
+      const data = await res.json();
+      handoffOutput = data.prompt;
+      renderBottomTab();
+    }
+
+    function copyText(text, btnId) {
+      navigator.clipboard.writeText(text);
+      const btn = document.getElementById(btnId);
+      if (btn) {
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      }
+    }
+
+    function selectProviderCard(id) {
+      selectedProvider = id;
+      render();
+    }
+
+    function setCodexResetTab(tab) {
+      codexResetTab = tab;
+      renderResetDetail();
+    }
+
+    function setBottomTab(tab) {
+      bottomTab = tab;
+      document.getElementById('tabHandoff').className = tab === 'handoff'
+        ? 'px-2 py-0.5 rounded bg-blue-600 text-white'
+        : 'px-2 py-0.5 rounded border border-theme text-muted';
+      document.getElementById('tabTrend').className = tab === 'trend'
+        ? 'px-2 py-0.5 rounded bg-blue-600 text-white'
+        : 'px-2 py-0.5 rounded border border-theme text-muted';
+      renderBottomTab();
+    }
+
+    function toggleTheme() {
+      document.body.classList.toggle('light');
+      document.getElementById('themeBtn').textContent = document.body.classList.contains('light') ? 'Dark Mode' : 'Light Mode';
+    }
+
+    function toggleCompactMode() {
+      compactMode = !compactMode;
+      const shell = document.getElementById('appShell');
+      const grid = document.getElementById('cardsGrid');
+      const bottom = document.getElementById('bottomGrid');
+      if (compactMode) {
+        shell.classList.add('max-w-md', 'mx-auto');
+        grid.classList.remove('md:grid-cols-3');
+        bottom.classList.remove('lg:grid-cols-2');
+        document.getElementById('modeBtn').textContent = 'Full Mode';
+      } else {
+        shell.classList.remove('max-w-md', 'mx-auto');
+        grid.classList.add('md:grid-cols-3');
+        bottom.classList.add('lg:grid-cols-2');
+        document.getElementById('modeBtn').textContent = 'Tray Mode';
+      }
+    }
+
+    function connBadge(id) {
+      if (!appAccounts?.providers?.[id]) return '';
+      const p = appAccounts.providers[id];
+      return p.connected
+        ? `<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block" title="${p.lastStatus}"></span>`
+        : `<span class="w-2 h-2 rounded-full bg-zinc-500 inline-block" title="Not connected"></span>`;
+    }
+
+    function renderTraySummary() {
+      const agyPeak = Math.max(...appState.providers.antigravity.groups.flatMap(g => g.items.map(i => i.usedPct)));
+      const claudePeak = Math.max(...appState.providers.claude.metrics.map(m => m.usedPct));
+      const codexPeak = Math.max(...appState.providers.codex.limits.map(l => l.usedPct));
+      const dot = (pct) => pct >= 75 ? '🔴' : pct >= 50 ? '🟡' : '🟢';
+      document.getElementById('traySummary').innerHTML = `
+        <span class="px-2 py-0.5 rounded bg-black/20">${dot(agyPeak)} AGY: ${agyPeak}%</span>
+        <span class="px-2 py-0.5 rounded bg-black/20">${dot(claudePeak)} Claude: ${claudePeak}%</span>
+        <span class="px-2 py-0.5 rounded bg-black/20">${dot(codexPeak)} Codex: ${codexPeak}%</span>
+      `;
+    }
+
+    function renderAlerts() {
+      const area = document.getElementById('alertsArea');
+      if (!appRouting.alerts || appRouting.alerts.length === 0) {
+        area.innerHTML = '';
+        return;
+      }
+      area.innerHTML = appRouting.alerts.map(a => {
+        const cls = a.severity === 'critical'
+          ? 'border-red-500/50 bg-red-500/10 text-red-400'
+          : 'border-amber-500/50 bg-amber-500/10 text-amber-400';
+        return `<div class="rounded-lg border px-3 py-2 text-xs ${cls}"><strong>${a.severity === 'critical' ? '⚠ Quota Alert:' : '💡 Smart Advisor:'}</strong> ${a.message}</div>`;
+      }).join('');
+    }
+
+    function renderCards() {
+      const { antigravity: agy, claude, codex } = appState.providers;
+      const isSel = (id) => selectedProvider === id;
+
+      const agyHtml = `
+        <div onclick="selectProviderCard('antigravity')"
+             class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-2.5 transition"
+             style="${isSel('antigravity') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
+          <div class="flex items-center justify-between border-b border-theme pb-2">
+            <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('antigravity')} Antigravity</span>
+            <span class="text-xs ${isSel('antigravity') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('antigravity') ? '● Reset View' : 'Click for Reset →'}</span>
+          </div>
+          ${agy.groups.map((grp, idx) => `
+            <div class="space-y-2 ${idx > 0 ? 'pt-2 border-t border-theme' : ''}">
+              <div class="text-xs font-semibold">${grp.name}</div>
+              ${grp.items.map(it => renderBarRow(it)).join('')}
+            </div>
+          `).join('')}
+        </div>
+      `;
+
+      const claudeHtml = `
+        <div onclick="selectProviderCard('claude')"
+             class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-3 transition"
+             style="${isSel('claude') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
+          <div class="flex items-center justify-between border-b border-theme pb-2">
+            <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('claude')} Claude</span>
+            <span class="text-xs ${isSel('claude') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('claude') ? '● Reset View' : 'Click for Reset →'}</span>
+          </div>
+          <div class="text-xs font-medium">${claude.summary}</div>
+          ${claude.metrics.map(m => `<div class="pt-2 border-t border-theme">${renderBarRow(m)}</div>`).join('')}
+        </div>
+      `;
+
+      const codexHtml = `
+        <div onclick="selectProviderCard('codex')"
+             class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-3 transition"
+             style="${isSel('codex') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
+          <div class="flex items-center justify-between border-b border-theme pb-2">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('codex')} Codex</span>
+              <span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-mono">${codex.resetsAvailable.length} Resets</span>
+            </div>
+            <span class="text-xs ${isSel('codex') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('codex') ? '● Reset View' : 'Click for Reset →'}</span>
+          </div>
+          <div class="text-xs text-muted">${codex.summary}</div>
+          ${codex.limits.map(lim => `<div class="pt-2 border-t border-theme">${renderBarRow(lim)}</div>`).join('')}
+        </div>
+      `;
+
+      document.getElementById('cardsGrid').innerHTML = agyHtml + claudeHtml + codexHtml;
+    }
+
+    function renderResetDetail() {
+      const panel = document.getElementById('resetDetailPanel');
+      if (selectedProvider === 'codex') {
+        const codex = appState.providers.codex;
+        const isAvail = codexResetTab === 'available';
+        panel.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-theme pb-2.5">
+            <div>
+              <h3 class="text-sm font-semibold">Codex — Usage limit resets</h3>
+              <p class="text-xs text-muted">Use a reset to restore your 5-hour limit, weekly limit, or both back to 0% used</p>
+            </div>
+            <div class="flex items-center gap-1 p-0.5 rounded-lg border border-theme text-xs">
+              <button onclick="setCodexResetTab('available')" class="px-2.5 py-1 rounded-md ${isAvail ? 'bg-blue-600 text-white font-medium' : 'text-muted'}">Available ${codex.resetsAvailable.length}</button>
+              <button onclick="setCodexResetTab('history')" class="px-2.5 py-1 rounded-md ${!isAvail ? 'bg-blue-600 text-white font-medium' : 'text-muted'}">History ${codex.resetsHistory.length}</button>
+            </div>
+          </div>
+          <div class="divide-y divide-[var(--border)]">
+            ${isAvail ? (
+              codex.resetsAvailable.length > 0 ? codex.resetsAvailable.map(r => `
+                <div class="py-2.5 flex items-center justify-between gap-2 text-xs">
+                  <div><div class="font-medium">${r.title}</div><div class="text-muted">${r.expires}</div></div>
+                  <button onclick="applyReset('codex', null, '${r.id}')" class="px-3 py-1.5 rounded-lg border border-theme hover:bg-blue-600 hover:text-white hover:border-blue-600 font-medium transition">Use reset</button>
+                </div>
+              `).join('') : `<div class="py-4 text-center text-xs text-muted">No resets remaining. Switch to Antigravity or Claude!</div>`
+            ) : codex.resetsHistory.map(h => `
+              <div class="py-2.5 flex items-center justify-between gap-2 text-xs">
+                <div><div class="font-medium">${h.title}</div><div class="text-muted">${h.usedAt}</div></div>
+                <span class="font-mono text-muted">Applied</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else if (selectedProvider === 'antigravity') {
+        const agy = appState.providers.antigravity;
+        panel.innerHTML = `
+          <div class="border-b border-theme pb-2.5">
+            <h3 class="text-sm font-semibold">Antigravity — Model Group Reset Schedule</h3>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+            ${agy.groups.map(grp => `
+              <div class="p-3 rounded-lg border border-theme bg-black/15 flex flex-col justify-between space-y-2">
+                <div class="space-y-1">
+                  <div class="font-semibold">${grp.name}</div>
+                  ${grp.items.map(it => `<div class="flex justify-between text-muted"><span>${it.label.split(' ')[0]}</span><span class="font-mono ${getTextColorClass(it.usedPct)}">${it.usedPct}% used</span></div>`).join('')}
+                </div>
+                <button onclick="applyReset('antigravity', '${grp.id}')" class="w-full py-1.5 rounded-lg border border-theme hover:border-blue-500 font-medium transition">Reset Pool to 0%</button>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else {
+        const claude = appState.providers.claude;
+        panel.innerHTML = `
+          <div class="border-b border-theme pb-2.5">
+            <h3 class="text-sm font-semibold">Claude — Session & Weekly Reset Schedule</h3>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+            ${claude.metrics.map(m => `
+              <div class="p-3 rounded-lg border border-theme bg-black/15 flex items-center justify-between gap-2">
+                <div><div class="font-semibold">${m.label} (${m.usedPct}% used)</div><div class="text-muted">${m.resetText} • in ${m.countdown}</div></div>
+                <button onclick="applyReset('claude', '${m.id}')" class="px-3 py-1.5 rounded-lg border border-theme hover:border-blue-500 font-medium transition">Reset to 0%</button>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+    }
+
+    function renderRouter() {
+      const rec = appRouting.recommended;
+      document.getElementById('routerContent').innerHTML = `
+        <div class="p-3 rounded-lg border border-blue-500/40 bg-blue-500/10 space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-blue-400">★ Recommended: ${rec.label}</span>
+            <span class="font-mono text-emerald-400">${rec.usedPct}% used (${rec.headroom}% left)</span>
+          </div>
+          <p class="text-muted">${appRouting.reason}</p>
+          <div class="flex items-center gap-2 pt-1">
+            <code class="flex-1 px-2 py-1 rounded bg-black/30 font-mono text-xs truncate">${rec.command}</code>
+            <button id="copyCmdBtn" onclick="copyText('${rec.command.replace(/'/g, "\\'")}', 'copyCmdBtn')" class="px-2.5 py-1 rounded bg-blue-600 text-white font-medium hover:bg-blue-500 transition">Copy CLI</button>
+          </div>
+        </div>
+        <div class="space-y-1">
+          ${appRouting.ranked.map((r, i) => `
+            <div class="flex items-center justify-between py-1 border-b border-theme last:border-0">
+              <span>${i + 1}. ${r.label}</span>
+              <span class="font-mono ${getTextColorClass(r.usedPct)}">${r.usedPct}% used</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function renderBottomTab() {
+      const container = document.getElementById('bottomTabContent');
+      if (bottomTab === 'handoff') {
+        container.innerHTML = `
+          <div class="space-y-2">
+            <div class="grid grid-cols-2 gap-2">
+              <select id="handoffFrom" class="w-full card rounded px-2 py-1"><option>Claude</option><option>Antigravity (Claude/GPT)</option><option>Codex</option></select>
+              <select id="handoffTo" class="w-full card rounded px-2 py-1"><option>Antigravity (Gemini 4 Argon)</option><option>Codex (o3-mini)</option><option>Claude (Sonnet)</option></select>
+            </div>
+            <input id="handoffSummary" type="text" placeholder="Task summary (e.g. Refactoring auth middleware)" class="w-full card rounded px-2 py-1.5" />
+            <input id="handoffFiles" type="text" placeholder="Active files (e.g. server.js, src/router.js)" class="w-full card rounded px-2 py-1.5" />
+            <div class="flex gap-2">
+              <button onclick="generateHandoff()" class="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition">Generate Handoff Prompt</button>
+              ${handoffOutput ? `<button id="copyHandoffBtn" onclick="copyText(handoffOutput, 'copyHandoffBtn')" class="px-3 py-1.5 rounded border border-theme hover:opacity-80">Copy Prompt</button>` : ''}
+            </div>
+            ${handoffOutput ? `<pre class="p-2 rounded bg-black/30 border border-theme font-mono text-xs whitespace-pre-wrap max-h-36 overflow-y-auto">${handoffOutput.replace(/</g, '&lt;')}</pre>` : ''}
+          </div>
+        `;
+      } else {
+        const hist = appState.history || [];
+        const w = 420, h = 150, pad = 24;
+        const pts = (key) => hist.map((pt, i) => `${(pad + (i / Math.max(1, hist.length - 1)) * (w - pad * 2)).toFixed(1)},${(h - pad - (pt[key] / 100) * (h - pad * 2)).toFixed(1)}`).join(' ');
+        container.innerHTML = `
+          <div class="space-y-2">
+            <div class="flex items-center gap-4 text-xs">
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> Antigravity</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Claude</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Codex</span>
+            </div>
+            <svg viewBox="0 0 ${w} ${h}" class="w-full h-40 rounded bg-black/20 border border-theme">
+              <line x1="${pad}" y1="${h - pad - 0.75 * (h - pad * 2)}" x2="${w - pad}" y2="${h - pad - 0.75 * (h - pad * 2)}" stroke="#ef4444" stroke-dasharray="4 3" stroke-opacity="0.5" />
+              <polyline fill="none" stroke="#3b82f6" stroke-width="2" points="${pts('antigravity')}" />
+              <polyline fill="none" stroke="#10b981" stroke-width="2" points="${pts('claude')}" />
+              <polyline fill="none" stroke="#f59e0b" stroke-width="2" points="${pts('codex')}" />
+            </svg>
+          </div>
+        `;
+      }
+    }
+
+    function render() {
+      if (!appState || !appRouting) return;
+      renderTraySummary();
+      renderAlerts();
+      renderCards();
+      renderResetDetail();
+      renderRouter();
+      renderBottomTab();
+    }
+
+    fetchState();
+  </script>
+</body>
+</html>

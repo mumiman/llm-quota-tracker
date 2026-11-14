@@ -1,0 +1,6 @@
+node_modules/
+data/accounts.json
+data/quota-state.json
+.env
+.DS_Store
+*.log
