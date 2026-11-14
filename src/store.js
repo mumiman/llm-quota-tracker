@@ -20,8 +20,8 @@ function getInitialState() {
             name: 'Gemini Models',
             strengths: ['agentic', 'fast', 'deep'],
             items: [
-              { id: 'g_5h', label: 'Current session (5h limit)', usedPct: 0, resetText: 'Resets in 4h 50m', windowHours: 5 },
-              { id: 'g_weekly', label: 'This week (Weekly limit)', usedPct: 0, resetText: 'Resets in 6d 18h', windowHours: 168 }
+              { id: 'g_5h', label: 'Current session (5h limit)', usedPct: 13, resetText: 'Resets in <1m', windowHours: 5 },
+              { id: 'g_weekly', label: 'This week (Weekly limit)', usedPct: 4, resetText: 'Resets in 6d 19h', windowHours: 168 }
             ]
           },
           {
@@ -30,7 +30,7 @@ function getInitialState() {
             strengths: ['deep', 'agentic'],
             items: [
               { id: 'cg_5h', label: 'Current session (5h limit)', usedPct: 0, resetText: 'Resets in 5h 00m', windowHours: 5 },
-              { id: 'cg_weekly', label: 'This week (Weekly limit)', usedPct: 78, resetText: 'Resets in 1d 16h', windowHours: 168 }
+              { id: 'cg_weekly', label: 'This week (Weekly limit)', usedPct: 78, resetText: 'Resets in 1d 11h', windowHours: 168 }
             ]
           },
           {
@@ -38,7 +38,7 @@ function getInitialState() {
             name: 'Gemini 4 Argon',
             strengths: ['agentic', 'deep'],
             items: [
-              { id: 'argon_weekly', label: 'This week (Weekly limit)', usedPct: 1, resetText: 'Resets in 6d 23h', windowHours: 168 }
+              { id: 'argon_weekly', label: 'This week (Weekly limit)', usedPct: 2, resetText: 'Resets in 6d 18h', windowHours: 168 }
             ]
           }
         ]

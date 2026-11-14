@@ -327,13 +327,18 @@ function parseUsagePageText(providerId, rawText) {
 
   if (providerId === 'antigravity') {
     const leftMatches = [...text.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
+    const resetMatches = [...text.matchAll(/resets?\s+in\s+([^\n,]+)/gi)].map(m => `Resets in ${m[1].trim()}`);
     return {
       ok: leftMatches.length > 0,
       geminiWeeklyUsedPct: leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null,
       gemini5hUsedPct: leftMatches[1] !== undefined ? Math.max(0, 100 - leftMatches[1]) : null,
       claudeGptWeeklyUsedPct: leftMatches[2] !== undefined ? Math.max(0, 100 - leftMatches[2]) : null,
       claudeGpt5hUsedPct: leftMatches[3] !== undefined ? Math.max(0, 100 - leftMatches[3]) : null,
-      argonWeeklyUsedPct: leftMatches[4] !== undefined ? Math.max(0, 100 - leftMatches[4]) : null
+      argonWeeklyUsedPct: leftMatches[4] !== undefined ? Math.max(0, 100 - leftMatches[4]) : null,
+      geminiWeeklyResetText: resetMatches[0] ?? null,
+      gemini5hResetText: resetMatches[1] ?? null,
+      claudeGptWeeklyResetText: resetMatches[2] ?? null,
+      argonWeeklyResetText: resetMatches[3] ?? null
     };
   }
 

@@ -298,3 +298,36 @@ test('Kimi (kimi.ai) supports usage tracking, reset, and parse-usage', async () 
   assert.equal(parseData.state.providers.kimi.limits[0].usedPct, 28);
   assert.equal(parseData.state.providers.kimi.limits[1].usedPct, 15);
 });
+
+test('Antigravity parse-usage converts % left to % used and preserves reset countdowns', async () => {
+  const sampleAgy = `Usage
+Gemini Models
+Weekly limit 96% left
+Resets in 6d 19h
+5h limit 87% left
+Resets in <1m
+Claude and GPT models
+Weekly limit 22% left
+Resets in 1d 11h
+5h limit 100% left
+Gemini 4 Argon 98% left
+Weekly limit, resets in 6d 18h`;
+
+  const res = await fetch(`${baseUrl}/api/accounts/parse-usage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'antigravity', rawText: sampleAgy })
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  const agy = data.state.providers.antigravity;
+  assert.equal(agy.groups[0].items[0].usedPct, 13);
+  assert.equal(agy.groups[0].items[0].resetText, 'Resets in <1m');
+  assert.equal(agy.groups[0].items[1].usedPct, 4);
+  assert.equal(agy.groups[0].items[1].resetText, 'Resets in 6d 19h');
+  assert.equal(agy.groups[1].items[1].usedPct, 78);
+  assert.equal(agy.groups[1].items[1].resetText, 'Resets in 1d 11h');
+  assert.equal(agy.groups[1].items[0].usedPct, 0);
+  assert.equal(agy.groups[2].items[0].usedPct, 2);
+  assert.equal(agy.groups[2].items[0].resetText, 'Resets in 6d 18h');
+});

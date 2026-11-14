@@ -189,10 +189,14 @@ function createServer() {
           if (parsed.weeklyResetText) state.providers.codex.limits[1].resetText = parsed.weeklyResetText;
         } else if (providerId === 'antigravity') {
           if (typeof parsed.geminiWeeklyUsedPct === 'number') state.providers.antigravity.groups[0].items[1].usedPct = parsed.geminiWeeklyUsedPct;
+          if (parsed.geminiWeeklyResetText) state.providers.antigravity.groups[0].items[1].resetText = parsed.geminiWeeklyResetText;
           if (typeof parsed.gemini5hUsedPct === 'number') state.providers.antigravity.groups[0].items[0].usedPct = parsed.gemini5hUsedPct;
+          if (parsed.gemini5hResetText) state.providers.antigravity.groups[0].items[0].resetText = parsed.gemini5hResetText;
           if (typeof parsed.claudeGptWeeklyUsedPct === 'number') state.providers.antigravity.groups[1].items[1].usedPct = parsed.claudeGptWeeklyUsedPct;
+          if (parsed.claudeGptWeeklyResetText) state.providers.antigravity.groups[1].items[1].resetText = parsed.claudeGptWeeklyResetText;
           if (typeof parsed.claudeGpt5hUsedPct === 'number') state.providers.antigravity.groups[1].items[0].usedPct = parsed.claudeGpt5hUsedPct;
           if (typeof parsed.argonWeeklyUsedPct === 'number') state.providers.antigravity.groups[2].items[0].usedPct = parsed.argonWeeklyUsedPct;
+          if (parsed.argonWeeklyResetText) state.providers.antigravity.groups[2].items[0].resetText = parsed.argonWeeklyResetText;
         } else if (providerId === 'kimi' && state.providers.kimi) {
           if (typeof parsed.sessionUsedPct === 'number') state.providers.kimi.limits[0].usedPct = parsed.sessionUsedPct;
           if (parsed.sessionResetText) state.providers.kimi.limits[0].resetText = parsed.sessionResetText;
