@@ -4,7 +4,7 @@ const path = require('path');
 const { loadState, saveState, resetDemoState, recordUsage, applyReset } = require('./src/store');
 const { evaluateRoutes, generateHandoffPrompt } = require('./src/router');
 const { scanLocalEnvironments } = require('./src/scanner');
-const { getMaskedAccounts, updateAccountConfig, updateGlobalSettings } = require('./src/accounts');
+const { getMaskedAccounts, updateAccountConfig, updateGlobalSettings, autoDetectLocalLogins, loadAccounts, saveAccounts } = require('./src/accounts');
 const { syncAllAccounts } = require('./src/connectors');
 const { handleProxyChatCompletion } = require('./src/proxy');
 
@@ -85,6 +85,62 @@ function createServer() {
           updateGlobalSettings(body);
         }
         return sendJson(res, 200, { ok: true, accounts: getMaskedAccounts() });
+      }
+
+      // 1-Click Auto-Detect CLI logins (~/.claude, ~/.codex, ~/.gemini, env vars)
+      if (req.method === 'POST' && pathname === '/api/accounts/auto-detect') {
+        const { detected, accounts } = autoDetectLocalLogins();
+        const syncResult = await syncAllAccounts({ applyLocalEstimates: true });
+        const routing = evaluateRoutes(syncResult.state, syncResult.state.taskType || 'deep');
+        return sendJson(res, 200, {
+          ok: true,
+          detected,
+          accounts: getMaskedAccounts(),
+          state: syncResult.state,
+          routing,
+          localScan: syncResult.localScan
+        });
+      }
+
+      // Sync usage directly from Electron BrowserWindow OAuth login or Bookmarklet
+      if (req.method === 'POST' && pathname === '/api/accounts/session-sync') {
+        const body = await readBody(req);
+        const { providerId, sessionUsedPct, weeklyUsedPct, sessionResetText, weeklyResetText, accountLabel } = body;
+        if (!providerId) {
+          return sendJson(res, 400, { error: 'providerId is required' });
+        }
+
+        const acc = loadAccounts();
+        if (acc.providers[providerId]) {
+          acc.providers[providerId].connected = true;
+          acc.providers[providerId].mode = 'browser_oauth';
+          acc.providers[providerId].lastSyncAt = new Date().toISOString();
+          acc.providers[providerId].lastStatus = `Signed in via Web Session (${accountLabel || 'Browser OAuth'})`;
+          saveAccounts(acc);
+        }
+
+        const state = loadState();
+        if (providerId === 'claude') {
+          if (typeof sessionUsedPct === 'number') state.providers.claude.metrics[0].usedPct = Math.min(100, Math.max(0, sessionUsedPct));
+          if (typeof weeklyUsedPct === 'number') {
+            state.providers.claude.metrics[1].usedPct = Math.min(100, Math.max(0, weeklyUsedPct));
+            state.providers.claude.summary = `Fresh week. ${state.providers.claude.metrics[1].usedPct}% of your weekly limit used.`;
+          }
+          if (sessionResetText) state.providers.claude.metrics[0].resetText = sessionResetText;
+          if (weeklyResetText) state.providers.claude.metrics[1].resetText = weeklyResetText;
+        } else if (providerId === 'codex') {
+          if (typeof sessionUsedPct === 'number') state.providers.codex.limits[0].usedPct = Math.min(100, Math.max(0, sessionUsedPct));
+          if (typeof weeklyUsedPct === 'number') state.providers.codex.limits[1].usedPct = Math.min(100, Math.max(0, weeklyUsedPct));
+          if (sessionResetText) state.providers.codex.limits[0].resetText = sessionResetText;
+          if (weeklyResetText) state.providers.codex.limits[1].resetText = weeklyResetText;
+        } else if (providerId === 'antigravity') {
+          if (typeof sessionUsedPct === 'number') state.providers.antigravity.groups[0].items[0].usedPct = Math.min(100, Math.max(0, sessionUsedPct));
+          if (typeof weeklyUsedPct === 'number') state.providers.antigravity.groups[1].items[1].usedPct = Math.min(100, Math.max(0, weeklyUsedPct));
+        }
+
+        saveState(state);
+        const routing = evaluateRoutes(state, state.taskType || 'deep');
+        return sendJson(res, 200, { ok: true, state, routing, accounts: getMaskedAccounts() });
       }
 
       // Sync real accounts & local watchers now

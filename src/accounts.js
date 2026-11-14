@@ -128,11 +128,92 @@ function updateGlobalSettings({ autoSyncSeconds, autoFallbackThreshold }) {
   return saveAccounts(acc);
 }
 
+function autoDetectLocalLogins() {
+  const os = require('os');
+  const home = os.homedir();
+  const acc = loadAccounts();
+  const detected = {};
+
+  // 1. Claude Code CLI (~/.claude/.credentials.json or ~/.claude.json or env)
+  const claudeCreds = path.join(home, '.claude', '.credentials.json');
+  const claudeCfg = path.join(home, '.claude.json');
+  const claudeDir = path.join(home, '.claude');
+  if (process.env.ANTHROPIC_API_KEY) {
+    acc.providers.claude.apiKey = process.env.ANTHROPIC_API_KEY;
+    acc.providers.claude.connected = true;
+    acc.providers.claude.mode = 'api_key';
+    acc.providers.claude.lastStatus = 'Connected via ANTHROPIC_API_KEY env';
+    detected.claude = 'env_api_key';
+  } else if (fs.existsSync(claudeCreds) || fs.existsSync(claudeCfg) || fs.existsSync(claudeDir)) {
+    acc.providers.claude.connected = true;
+    acc.providers.claude.mode = 'cli_oauth';
+    acc.providers.claude.lastStatus = 'Connected via Claude Code CLI session (~/.claude)';
+    detected.claude = 'cli_session';
+  } else {
+    detected.claude = 'not_found';
+  }
+
+  // 2. Codex CLI (~/.codex/auth.json or ~/.codex or env)
+  const codexAuth = path.join(home, '.codex', 'auth.json');
+  const codexDir = path.join(home, '.codex');
+  if (process.env.OPENAI_API_KEY) {
+    acc.providers.codex.apiKey = process.env.OPENAI_API_KEY;
+    acc.providers.codex.connected = true;
+    acc.providers.codex.mode = 'api_key';
+    acc.providers.codex.lastStatus = 'Connected via OPENAI_API_KEY env';
+    detected.codex = 'env_api_key';
+  } else if (fs.existsSync(codexAuth)) {
+    try {
+      const authData = JSON.parse(fs.readFileSync(codexAuth, 'utf8'));
+      if (authData.OPENAI_API_KEY) {
+        acc.providers.codex.apiKey = authData.OPENAI_API_KEY;
+      }
+    } catch {
+      // ignore parse error
+    }
+    acc.providers.codex.connected = true;
+    acc.providers.codex.mode = 'cli_oauth';
+    acc.providers.codex.lastStatus = 'Connected via Codex CLI login (~/.codex/auth.json)';
+    detected.codex = 'cli_session';
+  } else if (fs.existsSync(codexDir)) {
+    acc.providers.codex.connected = true;
+    acc.providers.codex.mode = 'cli_oauth';
+    acc.providers.codex.lastStatus = 'Connected via Codex CLI directory (~/.codex)';
+    detected.codex = 'cli_session';
+  } else {
+    detected.codex = 'not_found';
+  }
+
+  // 3. Antigravity / Google Gemini (~/.gemini or gcloud ADC or env)
+  const geminiDir = path.join(home, '.gemini');
+  const gcloudAdc = path.join(home, '.config', 'gcloud', 'application_default_credentials.json');
+  if (process.env.GEMINI_API_KEY) {
+    acc.providers.antigravity.apiKey = process.env.GEMINI_API_KEY;
+    acc.providers.antigravity.connected = true;
+    acc.providers.antigravity.mode = 'api_key';
+    acc.providers.antigravity.lastStatus = 'Connected via GEMINI_API_KEY env';
+    detected.antigravity = 'env_api_key';
+  } else if (fs.existsSync(geminiDir) || fs.existsSync(gcloudAdc)) {
+    acc.providers.antigravity.connected = true;
+    acc.providers.antigravity.mode = 'cli_oauth';
+    acc.providers.antigravity.lastStatus = fs.existsSync(geminiDir)
+      ? 'Connected via Antigravity / Gemini session (~/.gemini)'
+      : 'Connected via Google Cloud ADC (~/.config/gcloud)';
+    detected.antigravity = 'cli_session';
+  } else {
+    detected.antigravity = 'not_found';
+  }
+
+  saveAccounts(acc);
+  return { detected, accounts: getMaskedAccounts() };
+}
+
 module.exports = {
   loadAccounts,
   saveAccounts,
   getMaskedAccounts,
   updateAccountConfig,
   updateGlobalSettings,
+  autoDetectLocalLogins,
   maskKey
 };

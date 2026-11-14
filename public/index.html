@@ -254,6 +254,79 @@
       render();
     }
 
+    async function autoDetectAccounts() {
+      const btn = document.getElementById('autoDetectBtn');
+      if (btn) { btn.textContent = 'Detecting CLI logins...'; btn.disabled = true; }
+      try {
+        const res = await fetch('/api/accounts/auto-detect', { method: 'POST' });
+        const data = await res.json();
+        appState = data.state;
+        appRouting = data.routing;
+        appAccounts = data.accounts;
+        renderAccountsForm();
+        render();
+
+        const box = document.getElementById('syncStatusBox');
+        if (box) {
+          box.classList.remove('hidden');
+          box.innerHTML = `
+            <div class="font-semibold text-emerald-400">Auto-Detect Completed!</div>
+            <div>• Antigravity: ${appAccounts.providers.antigravity.lastStatus}</div>
+            <div>• Claude: ${appAccounts.providers.claude.lastStatus}</div>
+            <div>• Codex: ${appAccounts.providers.codex.lastStatus}</div>
+          `;
+        }
+      } finally {
+        if (btn) { btn.textContent = '⚡ 1-Click Auto-Detect CLI Logins'; btn.disabled = false; }
+      }
+    }
+
+    async function signInWithProvider(providerId) {
+      // If running inside Electron Desktop App, open native BrowserWindow OAuth!
+      if (window.electronAuth?.isDesktop) {
+        const result = await window.electronAuth.signIn(providerId);
+        await fetchState();
+        renderAccountsForm();
+        const box = document.getElementById('syncStatusBox');
+        if (box) {
+          box.classList.remove('hidden');
+          box.innerHTML = result?.synced
+            ? `<div class="text-emerald-400 font-semibold">✓ Signed in & synced ${providerId} usage automatically!</div>`
+            : `<div class="text-blue-400">Browser session closed. Click "Sync Now" to refresh.</div>`;
+        }
+        return;
+      }
+
+      // In standard Web Browser mode: open official login/usage page
+      const urls = {
+        claude: 'https://claude.ai/settings/usage',
+        codex: 'https://chatgpt.com/codex/settings/usage',
+        antigravity: 'https://aistudio.google.com/'
+      };
+      window.open(urls[providerId], '_blank', 'noopener');
+    }
+
+    async function quickSyncSession(providerId) {
+      const sVal = Number(document.getElementById(`quick_sess_${providerId}`)?.value);
+      const wVal = Number(document.getElementById(`quick_week_${providerId}`)?.value);
+      const res = await fetch('/api/accounts/session-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerId,
+          sessionUsedPct: Number.isNaN(sVal) ? undefined : sVal,
+          weeklyUsedPct: Number.isNaN(wVal) ? undefined : wVal,
+          accountLabel: 'Web Login Sync'
+        })
+      });
+      const data = await res.json();
+      appState = data.state;
+      appRouting = data.routing;
+      appAccounts = data.accounts;
+      renderAccountsForm();
+      render();
+    }
+
     function openAccountsModal() {
       document.getElementById('accountsModal').classList.remove('hidden');
       document.getElementById('proxyUrlCode').textContent = `${window.location.origin}/proxy/v1/chat/completions`;
@@ -268,32 +341,60 @@
       if (!appAccounts) return;
       const area = document.getElementById('accountsFormArea');
       const items = [
-        { id: 'antigravity', title: 'Antigravity / Google Gemini', placeholder: 'AIzaSy... (Gemini API Key)' },
-        { id: 'claude', title: 'Claude / Anthropic', placeholder: 'sk-ant-api03-... (Anthropic API Key)' },
-        { id: 'codex', title: 'Codex / OpenAI', placeholder: 'sk-proj-... (OpenAI API Key)' }
+        { id: 'claude', title: 'Claude (Anthropic)', signInLabel: 'Sign in with Claude', btnColor: 'bg-amber-600 hover:bg-amber-500', placeholder: 'sk-ant-api03-...' },
+        { id: 'codex', title: 'Codex (ChatGPT / OpenAI)', signInLabel: 'Sign in with ChatGPT', btnColor: 'bg-emerald-600 hover:bg-emerald-500', placeholder: 'sk-proj-...' },
+        { id: 'antigravity', title: 'Antigravity (Google)', signInLabel: 'Sign in with Google', btnColor: 'bg-blue-600 hover:bg-blue-500', placeholder: 'AIzaSy...' }
       ];
 
-      area.innerHTML = items.map(item => {
-        const p = appAccounts.providers[item.id];
-        return `
-          <div class="p-3 rounded-xl border border-theme bg-black/15 space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="font-semibold">${item.title}</span>
-              <span class="px-2 py-0.5 rounded font-mono ${p.connected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-muted'}">
-                ${p.connected ? 'Connected' : 'Not Connected'}
-              </span>
-            </div>
-            <div class="text-muted">${p.lastStatus || 'Ready to connect'} ${p.hasApiKey ? `• Saved: <code>${p.apiKeyMasked}</code>` : ''}</div>
-            <div class="grid grid-cols-1 sm:grid-cols-5 gap-2">
-              <input id="key_${item.id}" type="password" placeholder="${item.placeholder}" class="sm:col-span-3 card rounded-lg px-2.5 py-1.5" />
-              <input id="url_${item.id}" type="text" value="${p.baseUrl}" class="sm:col-span-1 card rounded-lg px-2 py-1.5 text-muted" />
-              <button onclick="saveProviderKey('${item.id}')" class="sm:col-span-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-2.5 py-1.5 font-medium transition">
-                Save & Test
-              </button>
-            </div>
+      area.innerHTML = `
+        <div class="p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="font-semibold text-emerald-400">Easiest Way: Auto-Detect Signed-in CLIs</div>
+            <div class="text-muted">Automatically connects Claude Code (<code>~/.claude</code>), Codex CLI (<code>~/.codex</code>), and Antigravity (<code>~/.gemini</code>).</div>
           </div>
-        `;
-      }).join('');
+          <button id="autoDetectBtn" onclick="autoDetectAccounts()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition">
+            ⚡ 1-Click Auto-Detect CLI Logins
+          </button>
+        </div>
+
+        ${items.map(item => {
+          const p = appAccounts.providers[item.id];
+          return `
+            <div class="p-3 rounded-xl border border-theme bg-black/15 space-y-2.5">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span class="font-semibold">${item.title}</span>
+                  <span class="ml-2 px-2 py-0.5 rounded font-mono ${p.connected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-muted'}">
+                    ${p.connected ? 'Connected' : 'Not Connected'}
+                  </span>
+                </div>
+                <button onclick="signInWithProvider('${item.id}')" class="px-3 py-1.5 rounded-lg ${item.btnColor} text-white font-medium transition">
+                  ${item.signInLabel} ↗
+                </button>
+              </div>
+              <div class="text-muted">${p.lastStatus || 'Ready to connect'} ${p.hasApiKey ? `• Saved: <code>${p.apiKeyMasked}</code>` : ''}</div>
+
+              <details class="pt-1 border-t border-theme">
+                <summary class="cursor-pointer text-muted hover:text-white select-none">Advanced: Sync % manually or enter API Key</summary>
+                <div class="mt-2 space-y-2">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <input id="quick_sess_${item.id}" type="number" min="0" max="100" placeholder="5h % used" class="w-28 card rounded-lg px-2 py-1" />
+                    <input id="quick_week_${item.id}" type="number" min="0" max="100" placeholder="Weekly % used" class="w-28 card rounded-lg px-2 py-1" />
+                    <button onclick="quickSyncSession('${item.id}')" class="px-2.5 py-1 rounded-lg border border-theme hover:border-blue-500 font-medium">Sync %</button>
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                    <input id="key_${item.id}" type="password" placeholder="${item.placeholder} (Optional API Key)" class="sm:col-span-3 card rounded-lg px-2.5 py-1.5" />
+                    <input id="url_${item.id}" type="text" value="${p.baseUrl}" class="sm:col-span-1 card rounded-lg px-2 py-1.5 text-muted" />
+                    <button onclick="saveProviderKey('${item.id}')" class="sm:col-span-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-2.5 py-1.5 font-medium transition">
+                      Save Key
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </div>
+          `;
+        }).join('')}
+      `;
     }
 
     async function simulatePrompt() {

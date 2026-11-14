@@ -190,3 +190,33 @@ test('POST /api/handoff generates structured Context Handoff markdown', async ()
   const data = await res.json();
   assert.match(data.prompt, /Claude → Antigravity/);
 });
+
+test('POST /api/accounts/auto-detect detects local CLI sessions', async () => {
+  const res = await fetch(`${baseUrl}/api/accounts/auto-detect`, { method: 'POST' });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.ok(data.detected.antigravity);
+  assert.ok(data.detected.claude);
+  assert.ok(data.detected.codex);
+});
+
+test('POST /api/accounts/session-sync updates usage from browser login session', async () => {
+  const res = await fetch(`${baseUrl}/api/accounts/session-sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      providerId: 'claude',
+      sessionUsedPct: 44,
+      weeklyUsedPct: 12,
+      sessionResetText: 'Resets at 9:00 PM',
+      accountLabel: 'Claude.ai Web Session'
+    })
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.state.providers.claude.metrics[0].usedPct, 44);
+  assert.equal(data.state.providers.claude.metrics[1].usedPct, 12);
+  assert.equal(data.accounts.providers.claude.connected, true);
+});
