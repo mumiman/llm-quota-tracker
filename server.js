@@ -148,6 +148,19 @@ function createServer() {
         return sendJson(res, 200, { ok: true, state, routing, accounts: getMaskedAccounts() });
       }
 
+      // Focus or launch native Desktop App (e.g. Antigravity.app on macOS)
+      if (req.method === 'POST' && pathname === '/api/accounts/open-app') {
+        const body = await readBody(req);
+        const { providerId } = body;
+        const acc = loadAccounts();
+        const webUrl = acc.providers?.[providerId]?.webUrl || null;
+        if (process.platform === 'darwin' && providerId === 'antigravity') {
+          const { execFile } = require('child_process');
+          execFile('open', ['-a', 'Antigravity'], () => {});
+        }
+        return sendJson(res, 200, { ok: true, providerId, platform: process.platform, webUrl });
+      }
+
       // Parse copied usage page text (e.g. Ctrl+A, Ctrl+C from claude.ai/settings/usage or chatgpt.com)
       if (req.method === 'POST' && pathname === '/api/accounts/parse-usage') {
         const body = await readBody(req);
@@ -167,6 +180,9 @@ function createServer() {
           acc.providers[providerId].lastSyncAt = new Date().toISOString();
           if (body.accountLabel) {
             acc.providers[providerId].accountLabel = body.accountLabel;
+          }
+          if (body.pageUrl) {
+            acc.providers[providerId].webUrl = body.pageUrl;
           }
           const timeLabel = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
           acc.providers[providerId].lastStatus = `Live Auto-Sync (${body.accountLabel || 'Browser Extension'} @ ${timeLabel})`;

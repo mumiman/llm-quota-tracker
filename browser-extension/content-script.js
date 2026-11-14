@@ -1,7 +1,7 @@
 /**
- * Zero-Click Real-Time Content Script for LLM Quota Tracker (v3.1)
+ * Zero-Click Real-Time Content Script for LLM Quota Tracker (v3.2)
  * - Bridges `localhost:3456` "Sync Now" and "Open & Auto-Sync" buttons to the Extension Background Worker
- * - Observes DOM mutations (such as opening the Antigravity Usage Popover) and triggers immediate isolated extraction
+ * - Sends an immediate ACK (`QUOTA_TRACKER_OPEN_PROVIDER_ACK`) when the Extension handles opening a provider
  */
 (function () {
   const host = window.location.hostname || '';
@@ -10,7 +10,7 @@
 
   // 1. If running on the LLM Quota Tracker Dashboard (localhost:3456)
   if ((host === 'localhost' || host === '127.0.0.1') && port === '3456') {
-    document.documentElement.setAttribute('data-quota-ext', '3.1.0');
+    document.documentElement.setAttribute('data-quota-ext', '3.2.0');
 
     window.addEventListener('message', (event) => {
       if (event.source !== window) return;
@@ -24,7 +24,7 @@
             window.postMessage({ type: 'QUOTA_TRACKER_SYNC_DONE' }, '*');
           });
         } catch {
-          // Handled by background.js 3s executeScript loop via data-quota-sync-request attribute
+          // Handled by background.js 2s executeScript loop via data-quota-sync-request attribute
         }
       }
 
@@ -32,11 +32,14 @@
         const providerId = event.data.providerId || 'all';
         document.documentElement.setAttribute('data-quota-open-provider', providerId);
         try {
-          chrome.runtime.sendMessage({ type: 'OPEN_AND_SYNC_PROVIDER', providerId }, () => {
-            void chrome.runtime.lastError;
+          chrome.runtime.sendMessage({ type: 'OPEN_AND_SYNC_PROVIDER', providerId }, (resp) => {
+            if (!chrome.runtime.lastError && resp?.ok) {
+              document.documentElement.removeAttribute('data-quota-open-provider');
+              window.postMessage({ type: 'QUOTA_TRACKER_OPEN_PROVIDER_ACK', providerId }, '*');
+            }
           });
         } catch {
-          // Handled by background.js 3s executeScript loop via data-quota-open-provider attribute
+          // Handled by background.js 2s executeScript loop via data-quota-open-provider attribute
         }
       }
     });
@@ -54,7 +57,7 @@
       } catch {
         // Ignore if extension was reloaded; background.js executeScript handles it
       }
-    }, 600);
+    }, 500);
   }
 
   const observer = new MutationObserver(() => {

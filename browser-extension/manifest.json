@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LLM Quota Tracker Real-Time Auto-Sync",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Zero-click real-time quota sync for Antigravity, Claude, ChatGPT/Codex, and Kimi.ai into your local LLM Quota Tracker (localhost:3456).",
   "permissions": [
     "activeTab",
@@ -15,7 +15,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "LLM Quota Auto-Sync (v3.1)"
+    "default_title": "LLM Quota Auto-Sync (v3.2)"
   },
   "background": {
     "service_worker": "background.js"

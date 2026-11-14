@@ -266,34 +266,46 @@
     }
 
     async function openAndSyncProvider(providerId) {
-      const extActive = Boolean(document.documentElement.getAttribute('data-quota-ext'));
       const urls = {
+        antigravity: appAccounts?.providers?.antigravity?.webUrl || 'https://idx.google.com/',
         claude: 'https://claude.ai/settings/usage',
         codex: 'https://chatgpt.com/codex/settings/usage',
         kimi: 'https://www.kimi.com/'
       };
 
-      // Signal Browser Extension v3.1 to open/focus tab and auto-extract usage (including clicking Antigravity's Usage popover)
+      // 1. Signal Browser Extension (both v3.0 SYNC_NOW and v3.2 OPEN_PROVIDER)
       document.documentElement.setAttribute('data-quota-open-provider', providerId);
+      document.documentElement.setAttribute('data-quota-sync-request', String(Date.now()));
       window.postMessage({ type: 'QUOTA_TRACKER_OPEN_PROVIDER', providerId }, '*');
+      window.postMessage({ type: 'QUOTA_TRACKER_SYNC_NOW' }, '*');
 
-      // If Browser Extension isn't active yet, open web URLs directly via window.open
-      if (!extActive) {
-        if (providerId === 'all') {
-          window.open(urls.claude, '_blank', 'noopener');
-          window.open(urls.codex, '_blank', 'noopener');
-        } else if (urls[providerId]) {
-          window.open(urls[providerId], '_blank', 'noopener');
-        } else if (providerId === 'antigravity') {
-          openAccountsModal();
-          setTimeout(() => {
-            const el = document.getElementById('paste_antigravity');
-            if (el) el.focus();
-          }, 150);
+      // 2. Open target web tab(s) synchronously on click so browser popup blocker never blocks them
+      if (providerId === 'all') {
+        window.open(urls.claude, '_blank', 'noopener');
+        window.open(urls.codex, '_blank', 'noopener');
+        window.open(urls.kimi, '_blank', 'noopener');
+      } else if (urls[providerId]) {
+        window.open(urls[providerId], '_blank', 'noopener');
+      }
+
+      // 3. For Antigravity: also trigger native macOS Desktop App focus (`open -a Antigravity`) via local server
+      if (providerId === 'antigravity' || providerId === 'all') {
+        fetch('/api/accounts/open-app', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerId: 'antigravity' })
+        }).catch(() => {});
+
+        const pasteEl = document.getElementById('paste_antigravity');
+        if (pasteEl) {
+          pasteEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          pasteEl.focus();
         }
       }
 
-      // Poll state after the extension opens & scans the target tab(s)
+      renderSyncStatusBox(`Opening ${providerId === 'all' ? 'All Providers' : providerId} & waiting for Auto-Sync...`);
+
+      // 4. Poll state after the extension opens & scans the target tab(s)
       setTimeout(() => fetchState(), 1200);
       setTimeout(() => fetchState(), 3000);
       setTimeout(() => fetchState(), 5500);

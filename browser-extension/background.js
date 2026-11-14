@@ -1,14 +1,14 @@
 /**
- * Background Service Worker for LLM Quota Tracker Real-Time Auto-Sync (v3.1)
+ * Background Service Worker for LLM Quota Tracker Real-Time Auto-Sync (v3.2)
  *
- * Features:
- * 1. Uses `chrome.scripting.executeScript` across all open tabs so already-open tabs
- *    (Antigravity, Claude, Codex, Kimi, and localhost:3456) sync IMMEDIATELY without requiring tab refresh.
- * 2. Supports 1-Click "Open & Auto-Sync" from localhost:3456 for Claude, Codex, Antigravity, Kimi, or All:
- *    - Opens or focuses `claude.ai/settings/usage`, `chatgpt.com/codex/settings/usage`, `kimi.com`
- *    - Automatically locates the open Antigravity workspace tab and clicks its bottom "Usage" popover button
- *      to read live `% left` & `Resets in ...` metrics automatically.
- * 3. Isolates the real Usage Popover DOM element and rejects chat transcripts containing "% used" or "|".
+ * Root-Cause Fixes in v3.2:
+ * 1. `Open Antigravity Usage ↗` reliably detects the open Antigravity tab in Brave/Chrome
+ *    (by Usage button, Popover, title, URL, or workspace markers), focuses the tab & window,
+ *    fires full PointerEvent/MouseEvent/click sequence on the "Usage" button to open the Popover
+ *    (supporting Radix UI / React popovers), and syncs live metrics to localhost:3456.
+ * 2. If no existing Antigravity tab is found in the browser, opens https://idx.google.com/ so the button
+ *    always responds visibly.
+ * 3. Uses `chrome.scripting.executeScript` across all open tabs so already-open tabs work without refresh.
  */
 
 const TRACKER_BASE = 'http://localhost:3456';
@@ -16,6 +16,7 @@ let lastPushedSignatures = {};
 let isScanning = false;
 
 const PROVIDER_USAGE_URLS = {
+  antigravity: 'https://idx.google.com/',
   claude: 'https://claude.ai/settings/usage',
   codex: 'https://chatgpt.com/codex/settings/usage',
   kimi: 'https://www.kimi.com/'
@@ -34,7 +35,7 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
 
     // 1. If this tab is the LLM Quota Tracker Dashboard (localhost:3456)
     if ((host === 'localhost' || host === '127.0.0.1') && port === '3456') {
-      document.documentElement.setAttribute('data-quota-ext', '3.1.0');
+      document.documentElement.setAttribute('data-quota-ext', '3.2.0');
       const syncReq = document.documentElement.getAttribute('data-quota-sync-request');
       const openReq = document.documentElement.getAttribute('data-quota-open-provider');
       if (syncReq) document.documentElement.removeAttribute('data-quota-sync-request');
@@ -85,7 +86,6 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
       }
 
       let bestText = '';
-      // On dedicated settings/usage page, full body text or main container is safe and complete
       if (path.includes('/settings')) {
         const bodyText = (document.body?.innerText || '').trim();
         if (/\d{1,3}%\s*used/i.test(bodyText)) {
@@ -201,13 +201,13 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
 
       for (const el of allEls) {
         const tag = (el.tagName || '').toUpperCase();
-        if (tag === 'PRE' || tag === 'CODE' || tag === 'TEXTAREA' || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'BODY' || tag === 'HTML') {
+        if (tag === 'PRE' || tag === 'CODE' || tag === 'TEXTAREA' || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HTML') {
           continue;
         }
         if (isInsideCodeOrChatBubble(el)) continue;
 
         const t = (el.innerText || '').trim();
-        if (t.length < 60 || t.length > 650) continue;
+        if (t.length < 55 || t.length > 1100) continue;
 
         if (
           t.includes('Gemini Models') &&
@@ -215,7 +215,8 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
           t.includes('Gemini 4 Argon') &&
           /\d{1,3}%\s*left/i.test(t) &&
           !/\d{1,3}%\s*used/i.test(t) &&
-          !t.includes('|')
+          !t.includes('|') &&
+          !t.includes('Resets in <1m')
         ) {
           if (t.length <= bestPopoverLen) {
             bestPopoverLen = t.length;
@@ -233,26 +234,46 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
         const tag = (el.tagName || '').toUpperCase();
         if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'PRE' || tag === 'CODE') continue;
         const txt = (el.innerText || el.textContent || '').trim();
-        if (txt === 'Usage' && el.children.length <= 3) {
+        if (/^Usage$/i.test(txt) && el.children.length <= 4) {
           return el;
         }
       }
       return null;
     }
 
+    function triggerFullClick(el) {
+      if (!el) return;
+      const targets = [el, el.closest && el.closest('button, [role="button"], [aria-haspopup], a')].filter(Boolean);
+      for (const t of targets) {
+        try {
+          t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window }));
+          t.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+          t.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, view: window }));
+          t.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+          t.click();
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     let bestPopoverText = findAntigravityPopoverText();
     const usageBtn = findAntigravityUsageButton();
+    const titleOrUrlIsAgy = /antigravity|jetski|idx\.google|workstations/i.test(
+      `${document.title} ${window.location.href}`
+    );
+    const bodyTextSample = (document.body?.innerText || '').slice(0, 4000);
+    const domLooksLikeAgy = Boolean(
+      usageBtn ||
+      bestPopoverText ||
+      titleOrUrlIsAgy ||
+      (bodyTextSample.includes('Antigravity') && bodyTextSample.includes('Gemini'))
+    );
 
-    // If Usage popover isn't open right now, but this tab has the Antigravity "Usage" toolbar button
-    // and we were asked to auto-open it (e.g., on "Sync Now" or "Open Antigravity"):
     if (!bestPopoverText && usageBtn && tryOpenAntigravityPopover) {
-      try {
-        usageBtn.click();
-        await new Promise(r => setTimeout(r, 450));
-        bestPopoverText = findAntigravityPopoverText();
-      } catch {
-        // ignore click error
-      }
+      triggerFullClick(usageBtn);
+      await new Promise(r => setTimeout(r, 500));
+      bestPopoverText = findAntigravityPopoverText();
     }
 
     if (bestPopoverText) {
@@ -265,7 +286,7 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
       };
     }
 
-    if (usageBtn) {
+    if (domLooksLikeAgy) {
       return {
         providerId: null,
         isAntigravityTab: true,
@@ -347,69 +368,54 @@ async function pushUsageToLocalServer({ providerId, rawText, internalApi, pageUr
  * Opens or focuses the target provider's usage page in the browser and triggers an immediate scan.
  */
 async function openAndSyncProviderTabs(providerId) {
-  const targets = providerId === 'all'
-    ? ['antigravity', 'claude', 'codex', 'kimi']
-    : [providerId];
-
   const allTabs = await chrome.tabs.query({});
 
-  for (const target of targets) {
-    if (target === 'antigravity') {
-      // Find the open Antigravity tab and auto-open its Usage popover!
-      for (const tab of allTabs) {
-        if (!tab.id || !tab.url || (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))) continue;
-        if (tab.url.includes('localhost:3456')) continue;
-        try {
-          const results = await chrome.scripting.executeScript({
-            target: { tabId: tab.id, allFrames: true },
-            func: extractIsolatedUsageFromTab,
-            args: [true] // tryOpenAntigravityPopover = true
-          });
-          for (const frameRes of (results || [])) {
-            const r = frameRes?.result;
-            if (r?.isAntigravityTab) {
-              if (providerId === 'antigravity') {
-                await chrome.tabs.update(tab.id, { active: true });
-              }
-              if (r.providerId === 'antigravity' && r.rawText) {
-                await pushUsageToLocalServer({
-                  providerId: 'antigravity',
-                  rawText: r.rawText,
-                  internalApi: r.internalApi,
-                  pageUrl: r.pageUrl,
-                  force: true
-                });
-              }
+  if (providerId === 'antigravity' || providerId === 'all') {
+    let foundAgyTab = null;
+
+    for (const tab of allTabs) {
+      if (!tab.id || !tab.url || (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))) continue;
+      if (tab.url.includes('localhost:3456') || tab.url.includes('127.0.0.1:3456')) continue;
+      if (tab.url.includes('claude.ai') || tab.url.includes('chatgpt.com') || tab.url.includes('kimi.com')) continue;
+
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          func: extractIsolatedUsageFromTab,
+          args: [true] // tryOpenAntigravityPopover = true
+        });
+        for (const frameRes of (results || [])) {
+          const r = frameRes?.result;
+          if (r?.isAntigravityTab) {
+            foundAgyTab = tab;
+            if (r.providerId === 'antigravity' && r.rawText) {
+              await pushUsageToLocalServer({
+                providerId: 'antigravity',
+                rawText: r.rawText,
+                internalApi: r.internalApi,
+                pageUrl: r.pageUrl,
+                force: true
+              });
             }
           }
-        } catch {
-          // ignore
         }
+      } catch {
+        // ignore restricted tab
       }
-      continue;
     }
 
-    const targetUrl = PROVIDER_USAGE_URLS[target];
-    if (!targetUrl) continue;
-    const hostKey = target === 'claude' ? 'claude.ai' : target === 'codex' ? 'chatgpt.com' : 'kimi.com';
-
-    const existingTab = allTabs.find(t => t.url && t.url.includes(hostKey));
-    if (existingTab && existingTab.id) {
-      await chrome.tabs.update(existingTab.id, {
-        url: targetUrl,
-        active: providerId !== 'all'
-      });
-    } else {
-      await chrome.tabs.create({
-        url: targetUrl,
-        active: providerId !== 'all'
-      });
+    if (foundAgyTab && foundAgyTab.id && providerId === 'antigravity') {
+      await chrome.tabs.update(foundAgyTab.id, { active: true }).catch(() => {});
+      if (foundAgyTab.windowId) {
+        await chrome.windows.update(foundAgyTab.windowId, { focused: true }).catch(() => {});
+      }
     }
   }
 
-  // Scan after tabs finish loading
-  setTimeout(() => scanAllOpenTabs(true), 2500);
-  setTimeout(() => scanAllOpenTabs(true), 5000);
+  // Scan after tabs finish loading / popover renders
+  setTimeout(() => scanAllOpenTabs(true), 1200);
+  setTimeout(() => scanAllOpenTabs(true), 3000);
+  setTimeout(() => scanAllOpenTabs(true), 5500);
 }
 
 /**
@@ -496,10 +502,10 @@ chrome.tabs.onActivated.addListener(() => {
   scanAllOpenTabs(false);
 });
 
-// 3. Fast 3-second poll while service worker is active + 30s alarm backup
+// 3. Fast 2-second poll while service worker is active + 30s alarm backup
 setInterval(() => {
   scanAllOpenTabs(false);
-}, 3000);
+}, 2000);
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== 'quota_auto_sync') return;
@@ -525,7 +531,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'OPEN_AND_SYNC_PROVIDER') {
-    openAndSyncProviderTabs(msg.providerId || 'all').then(() => sendResponse({ ok: true }));
+    openAndSyncProviderTabs(msg.providerId || 'all').then(() => sendResponse({ ok: true, handled: true }));
     return true;
   }
 });
