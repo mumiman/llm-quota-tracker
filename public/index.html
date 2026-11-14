@@ -95,6 +95,31 @@
         </div>
       </div>
 
+      <!-- Browser Extension Auto-Sync Quick Launch Bar -->
+      <div class="card rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div class="flex items-center gap-2">
+          <span class="font-semibold text-blue-400">⚡ Browser Extension Auto-Sync:</span>
+          <span class="text-muted">Open provider usage pages so the Extension auto-syncs live quota % in real time:</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button onclick="openAndSyncProvider('all')" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition">
+            🚀 Open All & Auto-Sync
+          </button>
+          <button onclick="openAndSyncProvider('antigravity')" class="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/35 text-blue-400 border border-blue-500/40 font-medium transition">
+            🔵 Antigravity Usage ↗
+          </button>
+          <button onclick="openAndSyncProvider('claude')" class="px-2.5 py-1 rounded-lg bg-amber-600/20 hover:bg-amber-600/35 text-amber-400 border border-amber-500/40 font-medium transition">
+            🟠 Claude Usage ↗
+          </button>
+          <button onclick="openAndSyncProvider('codex')" class="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-400 border border-emerald-500/40 font-medium transition">
+            🟢 Codex Usage ↗
+          </button>
+          <button onclick="openAndSyncProvider('kimi')" class="px-2.5 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/35 text-purple-400 border border-purple-500/40 font-medium transition">
+            🟣 Kimi.ai ↗
+          </button>
+        </div>
+      </div>
+
       <!-- Smart Alerts Banner -->
       <div id="alertsArea" class="space-y-2"></div>
 
@@ -206,11 +231,85 @@
       render();
     }
 
+    function renderSyncStatusBox(headerLabel) {
+      const box = document.getElementById('syncStatusBox');
+      if (!box || !appAccounts) return;
+      box.classList.remove('hidden');
+      const rows = [
+        { id: 'antigravity', name: 'Antigravity', btn: 'Open Antigravity Usage ↗', cls: 'bg-blue-600 hover:bg-blue-500' },
+        { id: 'claude', name: 'Claude', btn: 'Open Claude Usage ↗', cls: 'bg-amber-600 hover:bg-amber-500' },
+        { id: 'codex', name: 'Codex', btn: 'Open Codex Usage ↗', cls: 'bg-emerald-600 hover:bg-emerald-500' },
+        { id: 'kimi', name: 'Kimi', btn: 'Open Kimi.ai ↗', cls: 'bg-purple-600 hover:bg-purple-500' }
+      ];
+      box.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-theme">
+          <span class="font-semibold text-emerald-400">${headerLabel}</span>
+          <button onclick="openAndSyncProvider('all')" class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition">
+            🚀 Open All Web Tabs & Auto-Sync
+          </button>
+        </div>
+        <div class="space-y-1.5 pt-1">
+          ${rows.map(r => {
+            const p = appAccounts.providers[r.id];
+            if (!p) return '';
+            return `
+              <div class="flex flex-wrap items-center justify-between gap-2 py-0.5">
+                <span class="truncate">• <strong>${r.name}:</strong> ${p.lastStatus}</span>
+                <button onclick="openAndSyncProvider('${r.id}')" class="px-2 py-0.5 rounded ${r.cls} text-white font-medium shrink-0 transition">
+                  ${r.btn}
+                </button>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    async function openAndSyncProvider(providerId) {
+      const extActive = Boolean(document.documentElement.getAttribute('data-quota-ext'));
+      const urls = {
+        claude: 'https://claude.ai/settings/usage',
+        codex: 'https://chatgpt.com/codex/settings/usage',
+        kimi: 'https://www.kimi.com/'
+      };
+
+      // Signal Browser Extension v3.1 to open/focus tab and auto-extract usage (including clicking Antigravity's Usage popover)
+      document.documentElement.setAttribute('data-quota-open-provider', providerId);
+      window.postMessage({ type: 'QUOTA_TRACKER_OPEN_PROVIDER', providerId }, '*');
+
+      // If Browser Extension isn't active yet, open web URLs directly via window.open
+      if (!extActive) {
+        if (providerId === 'all') {
+          window.open(urls.claude, '_blank', 'noopener');
+          window.open(urls.codex, '_blank', 'noopener');
+        } else if (urls[providerId]) {
+          window.open(urls[providerId], '_blank', 'noopener');
+        } else if (providerId === 'antigravity') {
+          openAccountsModal();
+          setTimeout(() => {
+            const el = document.getElementById('paste_antigravity');
+            if (el) el.focus();
+          }, 150);
+        }
+      }
+
+      // Poll state after the extension opens & scans the target tab(s)
+      setTimeout(() => fetchState(), 1200);
+      setTimeout(() => fetchState(), 3000);
+      setTimeout(() => fetchState(), 5500);
+    }
+
     async function syncNow() {
       const btn = document.getElementById('syncBtn');
-      btn.textContent = 'Syncing...';
+      btn.textContent = 'Syncing Tabs...';
       btn.disabled = true;
       try {
+        // 1. Trigger Browser Extension v3.1 to immediately scan all open tabs (Antigravity, Claude, Codex, Kimi)
+        document.documentElement.setAttribute('data-quota-sync-request', String(Date.now()));
+        window.postMessage({ type: 'QUOTA_TRACKER_SYNC_NOW' }, '*');
+        await new Promise(r => setTimeout(r, 900));
+
+        // 2. Sync API keys & fetch updated state
         const res = await fetch('/api/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -221,17 +320,7 @@
         appRouting = data.routing;
         appAccounts = data.accounts;
         render();
-
-        const box = document.getElementById('syncStatusBox');
-        if (box) {
-          box.classList.remove('hidden');
-          box.innerHTML = `
-            <div class="font-semibold text-emerald-400">Synced at ${new Date(data.syncedAt).toLocaleTimeString()}</div>
-            <div>• Antigravity: ${appAccounts.providers.antigravity.lastStatus}</div>
-            <div>• Claude: ${appAccounts.providers.claude.lastStatus}</div>
-            <div>• Codex: ${appAccounts.providers.codex.lastStatus}</div>
-          `;
-        }
+        renderSyncStatusBox(`Synced at ${new Date(data.syncedAt).toLocaleTimeString()}`);
       } finally {
         btn.textContent = 'Sync Now';
         btn.disabled = false;
@@ -269,46 +358,21 @@
         appAccounts = data.accounts;
         renderAccountsForm();
         render();
-
-        const box = document.getElementById('syncStatusBox');
-        if (box) {
-          box.classList.remove('hidden');
-          box.innerHTML = `
-            <div class="font-semibold text-emerald-400">Auto-Detect Completed!</div>
-            <div>• Antigravity: ${appAccounts.providers.antigravity.lastStatus}</div>
-            <div>• Claude: ${appAccounts.providers.claude.lastStatus}</div>
-            <div>• Codex: ${appAccounts.providers.codex.lastStatus}</div>
-          `;
-        }
+        renderSyncStatusBox('Auto-Detect Completed!');
       } finally {
         if (btn) { btn.textContent = '⚡ 1-Click Auto-Detect CLI Logins'; btn.disabled = false; }
       }
     }
 
     async function signInWithProvider(providerId) {
-      // If running inside Electron Desktop App, open native BrowserWindow OAuth!
       if (window.electronAuth?.isDesktop) {
         const result = await window.electronAuth.signIn(providerId);
         await fetchState();
         renderAccountsForm();
-        const box = document.getElementById('syncStatusBox');
-        if (box) {
-          box.classList.remove('hidden');
-          box.innerHTML = result?.synced
-            ? `<div class="text-emerald-400 font-semibold">✓ Signed in & synced ${providerId} usage automatically!</div>`
-            : `<div class="text-blue-400">Browser session closed. Click "Sync Now" to refresh.</div>`;
-        }
+        renderSyncStatusBox(result?.synced ? `✓ Signed in & synced ${providerId}!` : 'Browser session closed.');
         return;
       }
-
-      // In standard Web Browser mode: open official login/usage page
-      const urls = {
-        claude: 'https://claude.ai/settings/usage',
-        codex: 'https://chatgpt.com/codex/settings/usage',
-        antigravity: 'https://aistudio.google.com/',
-        kimi: 'https://www.kimi.com/'
-      };
-      window.open(urls[providerId], '_blank', 'noopener');
+      await openAndSyncProvider(providerId);
     }
 
     async function quickSyncSession(providerId) {
@@ -596,10 +660,14 @@
         <div onclick="selectProviderCard('antigravity')"
              class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-2.5 transition"
              style="${isSel('antigravity') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
-          <div class="border-b border-theme pb-2 space-y-0.5">
-            <div class="flex items-center justify-between">
+          <div class="border-b border-theme pb-2 space-y-1">
+            <div class="flex items-center justify-between gap-1">
               <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('antigravity')} Antigravity</span>
-              <span class="text-xs ${isSel('antigravity') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('antigravity') ? '● Reset View' : 'Click for Reset →'}</span>
+              <div class="flex items-center gap-1.5">
+                <button onclick="event.stopPropagation(); openAndSyncProvider('antigravity')" class="px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/40 text-[11px] font-medium transition">
+                  Open & Sync ↗
+                </button>
+              </div>
             </div>
             ${syncStatusLine('antigravity')}
           </div>
@@ -616,10 +684,12 @@
         <div onclick="selectProviderCard('claude')"
              class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-3 transition"
              style="${isSel('claude') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
-          <div class="border-b border-theme pb-2 space-y-0.5">
-            <div class="flex items-center justify-between">
+          <div class="border-b border-theme pb-2 space-y-1">
+            <div class="flex items-center justify-between gap-1">
               <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('claude')} Claude</span>
-              <span class="text-xs ${isSel('claude') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('claude') ? '● Reset View' : 'Click for Reset →'}</span>
+              <button onclick="event.stopPropagation(); openAndSyncProvider('claude')" class="px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white border border-amber-500/40 text-[11px] font-medium transition">
+                Open Usage ↗
+              </button>
             </div>
             ${syncStatusLine('claude')}
           </div>
@@ -632,13 +702,15 @@
         <div onclick="selectProviderCard('codex')"
              class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-3 transition"
              style="${isSel('codex') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
-          <div class="border-b border-theme pb-2 space-y-0.5">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
+          <div class="border-b border-theme pb-2 space-y-1">
+            <div class="flex items-center justify-between gap-1">
+              <div class="flex items-center gap-1.5">
                 <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('codex')} Codex</span>
                 <span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-mono">${codex.resetsAvailable.length} Resets</span>
               </div>
-              <span class="text-xs ${isSel('codex') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('codex') ? '● Reset View' : 'Click for Reset →'}</span>
+              <button onclick="event.stopPropagation(); openAndSyncProvider('codex')" class="px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 text-[11px] font-medium transition">
+                Open Usage ↗
+              </button>
             </div>
             ${syncStatusLine('codex')}
           </div>
@@ -651,10 +723,12 @@
         <div onclick="selectProviderCard('kimi')"
              class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-3 transition"
              style="${isSel('kimi') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
-          <div class="border-b border-theme pb-2 space-y-0.5">
-            <div class="flex items-center justify-between">
+          <div class="border-b border-theme pb-2 space-y-1">
+            <div class="flex items-center justify-between gap-1">
               <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('kimi')} Kimi (kimi.ai)</span>
-              <span class="text-xs ${isSel('kimi') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('kimi') ? '● Reset View' : 'Click for Reset →'}</span>
+              <button onclick="event.stopPropagation(); openAndSyncProvider('kimi')" class="px-2 py-0.5 rounded bg-purple-600/20 hover:bg-purple-600 text-purple-400 hover:text-white border border-purple-500/40 text-[11px] font-medium transition">
+                Open Kimi ↗
+              </button>
             </div>
             ${syncStatusLine('kimi')}
           </div>

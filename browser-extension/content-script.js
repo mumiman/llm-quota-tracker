@@ -1,6 +1,6 @@
 /**
- * Zero-Click Real-Time Content Script for LLM Quota Tracker (v3.0)
- * - Bridges `localhost:3456` "Sync Now" button to the Extension Background Worker
+ * Zero-Click Real-Time Content Script for LLM Quota Tracker (v3.1)
+ * - Bridges `localhost:3456` "Sync Now" and "Open & Auto-Sync" buttons to the Extension Background Worker
  * - Observes DOM mutations (such as opening the Antigravity Usage Popover) and triggers immediate isolated extraction
  */
 (function () {
@@ -10,11 +10,13 @@
 
   // 1. If running on the LLM Quota Tracker Dashboard (localhost:3456)
   if ((host === 'localhost' || host === '127.0.0.1') && port === '3456') {
-    document.documentElement.setAttribute('data-quota-ext', '3.0.0');
+    document.documentElement.setAttribute('data-quota-ext', '3.1.0');
 
     window.addEventListener('message', (event) => {
       if (event.source !== window) return;
-      if (event.data && event.data.type === 'QUOTA_TRACKER_SYNC_NOW') {
+      if (!event.data) return;
+
+      if (event.data.type === 'QUOTA_TRACKER_SYNC_NOW') {
         document.documentElement.setAttribute('data-quota-sync-request', String(Date.now()));
         try {
           chrome.runtime.sendMessage({ type: 'POLL_ALL_TABS_NOW' }, () => {
@@ -22,7 +24,19 @@
             window.postMessage({ type: 'QUOTA_TRACKER_SYNC_DONE' }, '*');
           });
         } catch {
-          // If extension context was invalidated, background.js 3s executeScript loop will pick up data-quota-sync-request
+          // Handled by background.js 3s executeScript loop via data-quota-sync-request attribute
+        }
+      }
+
+      if (event.data.type === 'QUOTA_TRACKER_OPEN_PROVIDER') {
+        const providerId = event.data.providerId || 'all';
+        document.documentElement.setAttribute('data-quota-open-provider', providerId);
+        try {
+          chrome.runtime.sendMessage({ type: 'OPEN_AND_SYNC_PROVIDER', providerId }, () => {
+            void chrome.runtime.lastError;
+          });
+        } catch {
+          // Handled by background.js 3s executeScript loop via data-quota-open-provider attribute
         }
       }
     });
@@ -30,7 +44,6 @@
   }
 
   // 2. On provider tabs (Antigravity, Claude, ChatGPT/Codex, Kimi):
-  // Trigger background worker scan whenever DOM mutates (e.g. when Usage Popover opens!)
   function notifyBackgroundScan() {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
@@ -56,7 +69,6 @@
     });
   }
 
-  // Also trigger immediately on click (e.g., clicking the "Usage" button in Antigravity toolbar)
   window.addEventListener('click', () => {
     setTimeout(notifyBackgroundScan, 350);
     setTimeout(notifyBackgroundScan, 1000);
