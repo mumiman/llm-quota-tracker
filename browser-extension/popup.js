@@ -6,6 +6,24 @@ function showStatus(msg, isError = false) {
   statusEl.textContent = msg;
 }
 
+async function renderSyncHistory() {
+  const { lastSyncMap } = await chrome.storage.local.get(['lastSyncMap']);
+  const map = lastSyncMap || {};
+  for (const id of ['claude', 'codex', 'antigravity', 'kimi']) {
+    const el = document.getElementById(`st_${id}`);
+    if (!el || !map[id]) continue;
+    const item = map[id];
+    const timeStr = new Date(item.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    el.style.color = item.ok ? '#10b981' : '#f59e0b';
+    el.textContent = item.ok ? `✓ ${timeStr}` : `⚠ ${timeStr}`;
+    el.title = item.message;
+  }
+}
+
+document.getElementById('openDashboardBtn').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'http://localhost:3456' });
+});
+
 document.getElementById('openClaudeBtn').addEventListener('click', () => {
   chrome.tabs.create({ url: 'https://claude.ai/settings/usage' });
 });
@@ -18,29 +36,12 @@ document.getElementById('openKimiBtn').addEventListener('click', () => {
   chrome.tabs.create({ url: 'https://www.kimi.com/' });
 });
 
-document.getElementById('syncTabBtn').addEventListener('click', async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !tab.url) return showStatus('No active tab found', true);
-
-  let providerId = null;
-  if (tab.url.includes('claude.ai')) providerId = 'claude';
-  else if (tab.url.includes('chatgpt.com') || tab.url.includes('openai.com')) providerId = 'codex';
-  else if (tab.url.includes('kimi.com') || tab.url.includes('kimi.ai') || tab.url.includes('moonshot.cn')) providerId = 'kimi';
-  else return showStatus('Open Claude, ChatGPT/Codex, or Kimi.ai usage page first.', true);
-
-  try {
-    const [{ result: rawText }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => document.body ? document.body.innerText : ''
-    });
-
-    chrome.runtime.sendMessage({ type: 'SYNC_USAGE', providerId, rawText }, (resp) => {
-      if (!resp || !resp.ok) {
-        return showStatus(resp?.error || resp?.data?.error || 'Sync failed. Is "node server.js" running on port 3456?', true);
-      }
-      showStatus(`✓ Synced ${providerId.toUpperCase()}! Refresh localhost:3456 to view.`);
-    });
-  } catch (err) {
-    showStatus(`Script error: ${err.message}`, true);
-  }
+document.getElementById('syncAllBtn').addEventListener('click', async () => {
+  chrome.runtime.sendMessage({ type: 'POLL_ALL_TABS_NOW' }, () => {
+    showStatus('✓ Triggered real-time scan across all open tabs!');
+    setTimeout(renderSyncHistory, 1000);
+  });
 });
+
+renderSyncHistory();
+setInterval(renderSyncHistory, 2000);

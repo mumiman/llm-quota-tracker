@@ -1,26 +1,35 @@
 {
   "manifest_version": 3,
-  "name": "LLM Quota Tracker Sync",
-  "version": "1.0.0",
-  "description": "Syncs your logged-in Claude.ai and ChatGPT/Codex usage directly to your local LLM Quota Tracker (localhost:3456).",
+  "name": "LLM Quota Tracker Real-Time Auto-Sync",
+  "version": "2.0.0",
+  "description": "Zero-click real-time quota sync for Claude, ChatGPT/Codex, Kimi.ai, and Antigravity into your local LLM Quota Tracker (localhost:3456).",
   "permissions": [
     "activeTab",
-    "scripting"
+    "tabs",
+    "scripting",
+    "alarms",
+    "storage"
   ],
   "host_permissions": [
-    "https://claude.ai/*",
-    "https://chatgpt.com/*",
-    "https://www.kimi.com/*",
-    "https://kimi.ai/*",
-    "https://kimi.moonshot.cn/*",
-    "http://localhost:3456/*",
-    "http://127.0.0.1:3456/*"
+    "<all_urls>"
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Sync Quota to Tracker"
+    "default_title": "LLM Quota Auto-Sync"
   },
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content-script.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
 }

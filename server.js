@@ -163,9 +163,13 @@ function createServer() {
         const acc = loadAccounts();
         if (acc.providers[providerId]) {
           acc.providers[providerId].connected = true;
-          acc.providers[providerId].mode = 'web_sync';
+          acc.providers[providerId].mode = 'web_auto_sync';
           acc.providers[providerId].lastSyncAt = new Date().toISOString();
-          acc.providers[providerId].lastStatus = 'Synced from Usage Page';
+          if (body.accountLabel) {
+            acc.providers[providerId].accountLabel = body.accountLabel;
+          }
+          const timeLabel = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+          acc.providers[providerId].lastStatus = `Live Auto-Sync (${body.accountLabel || 'Browser Extension'} @ ${timeLabel})`;
           saveAccounts(acc);
         }
 
