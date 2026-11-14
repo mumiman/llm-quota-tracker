@@ -327,6 +327,28 @@
       render();
     }
 
+    async function parseUsageText(providerId) {
+      const rawText = document.getElementById(`paste_${providerId}`)?.value || '';
+      if (!rawText.trim()) return alert('Please paste text from the usage page first (Ctrl+A then Ctrl+C on the usage page).');
+      const res = await fetch('/api/accounts/parse-usage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerId, rawText })
+      });
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+      appState = data.state;
+      appRouting = data.routing;
+      appAccounts = data.accounts;
+      renderAccountsForm();
+      render();
+      const box = document.getElementById('syncStatusBox');
+      if (box) {
+        box.classList.remove('hidden');
+        box.innerHTML = `<div class="text-emerald-400 font-semibold">✓ Synced ${providerId} directly from pasted usage page!</div>`;
+      }
+    }
+
     function openAccountsModal() {
       document.getElementById('accountsModal').classList.remove('hidden');
       document.getElementById('proxyUrlCode').textContent = `${window.location.origin}/proxy/v1/chat/completions`;
@@ -341,9 +363,9 @@
       if (!appAccounts) return;
       const area = document.getElementById('accountsFormArea');
       const items = [
-        { id: 'claude', title: 'Claude (Anthropic)', signInLabel: 'Sign in with Claude', btnColor: 'bg-amber-600 hover:bg-amber-500', placeholder: 'sk-ant-api03-...' },
-        { id: 'codex', title: 'Codex (ChatGPT / OpenAI)', signInLabel: 'Sign in with ChatGPT', btnColor: 'bg-emerald-600 hover:bg-emerald-500', placeholder: 'sk-proj-...' },
-        { id: 'antigravity', title: 'Antigravity (Google)', signInLabel: 'Sign in with Google', btnColor: 'bg-blue-600 hover:bg-blue-500', placeholder: 'AIzaSy...' }
+        { id: 'claude', title: 'Claude (Anthropic)', signInLabel: 'Open Claude Usage', btnColor: 'bg-amber-600 hover:bg-amber-500', placeholder: 'sk-ant-api03-...' },
+        { id: 'codex', title: 'Codex (ChatGPT / OpenAI)', signInLabel: 'Open ChatGPT Usage', btnColor: 'bg-emerald-600 hover:bg-emerald-500', placeholder: 'sk-proj-...' },
+        { id: 'antigravity', title: 'Antigravity (Google)', signInLabel: 'Open Google AI', btnColor: 'bg-blue-600 hover:bg-blue-500', placeholder: 'AIzaSy...' }
       ];
 
       area.innerHTML = `
@@ -374,14 +396,16 @@
               </div>
               <div class="text-muted">${p.lastStatus || 'Ready to connect'} ${p.hasApiKey ? `• Saved: <code>${p.apiKeyMasked}</code>` : ''}</div>
 
+              <div class="flex gap-2 items-start">
+                <textarea id="paste_${item.id}" rows="2" placeholder="Paste text from ${item.title} usage page (Ctrl+A → Ctrl+C on usage page) to sync exact %..." class="flex-1 card rounded-lg px-2.5 py-1.5 text-xs"></textarea>
+                <button onclick="parseUsageText('${item.id}')" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium shrink-0 transition">
+                  Auto-Sync Text
+                </button>
+              </div>
+
               <details class="pt-1 border-t border-theme">
-                <summary class="cursor-pointer text-muted hover:text-white select-none">Advanced: Sync % manually or enter API Key</summary>
+                <summary class="cursor-pointer text-muted hover:text-white select-none">Advanced: Enter API Key (for Real-Time Headers & Proxy)</summary>
                 <div class="mt-2 space-y-2">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <input id="quick_sess_${item.id}" type="number" min="0" max="100" placeholder="5h % used" class="w-28 card rounded-lg px-2 py-1" />
-                    <input id="quick_week_${item.id}" type="number" min="0" max="100" placeholder="Weekly % used" class="w-28 card rounded-lg px-2 py-1" />
-                    <button onclick="quickSyncSession('${item.id}')" class="px-2.5 py-1 rounded-lg border border-theme hover:border-blue-500 font-medium">Sync %</button>
-                  </div>
                   <div class="grid grid-cols-1 sm:grid-cols-5 gap-2">
                     <input id="key_${item.id}" type="password" placeholder="${item.placeholder} (Optional API Key)" class="sm:col-span-3 card rounded-lg px-2.5 py-1.5" />
                     <input id="url_${item.id}" type="text" value="${p.baseUrl}" class="sm:col-span-1 card rounded-lg px-2 py-1.5 text-muted" />

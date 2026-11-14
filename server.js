@@ -5,7 +5,7 @@ const { loadState, saveState, resetDemoState, recordUsage, applyReset } = requir
 const { evaluateRoutes, generateHandoffPrompt } = require('./src/router');
 const { scanLocalEnvironments } = require('./src/scanner');
 const { getMaskedAccounts, updateAccountConfig, updateGlobalSettings, autoDetectLocalLogins, loadAccounts, saveAccounts } = require('./src/accounts');
-const { syncAllAccounts } = require('./src/connectors');
+const { syncAllAccounts, parseUsagePageText } = require('./src/connectors');
 const { handleProxyChatCompletion } = require('./src/proxy');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -141,6 +141,58 @@ function createServer() {
         saveState(state);
         const routing = evaluateRoutes(state, state.taskType || 'deep');
         return sendJson(res, 200, { ok: true, state, routing, accounts: getMaskedAccounts() });
+      }
+
+      // Parse copied usage page text (e.g. Ctrl+A, Ctrl+C from claude.ai/settings/usage or chatgpt.com)
+      if (req.method === 'POST' && pathname === '/api/accounts/parse-usage') {
+        const body = await readBody(req);
+        const { providerId, rawText } = body;
+        if (!providerId || !rawText) {
+          return sendJson(res, 400, { error: 'providerId and rawText are required' });
+        }
+        const parsed = parseUsagePageText(providerId, rawText);
+        if (!parsed.ok) {
+          return sendJson(res, 422, { error: 'Could not find usage percentages (% used / % left) in pasted text' });
+        }
+
+        const acc = loadAccounts();
+        if (acc.providers[providerId]) {
+          acc.providers[providerId].connected = true;
+          acc.providers[providerId].mode = 'web_sync';
+          acc.providers[providerId].lastSyncAt = new Date().toISOString();
+          acc.providers[providerId].lastStatus = 'Synced from Usage Page';
+          saveAccounts(acc);
+        }
+
+        const state = loadState();
+        if (providerId === 'claude') {
+          if (parsed.summary) state.providers.claude.summary = parsed.summary;
+          if (typeof parsed.sessionUsedPct === 'number') state.providers.claude.metrics[0].usedPct = parsed.sessionUsedPct;
+          if (parsed.sessionResetText) state.providers.claude.metrics[0].resetText = parsed.sessionResetText;
+          if (typeof parsed.weeklyUsedPct === 'number') state.providers.claude.metrics[1].usedPct = parsed.weeklyUsedPct;
+          if (parsed.weeklyResetText) state.providers.claude.metrics[1].resetText = parsed.weeklyResetText;
+          if (typeof parsed.fableUsedPct === 'number') {
+            const fableIdx = state.providers.claude.metrics.findIndex(m => m.id === 'fable');
+            const fableMetric = { id: 'fable', label: 'Fable', usedPct: parsed.fableUsedPct, resetText: parsed.weeklyResetText || 'Resets Friday 11:00 PM', countdown: '5d 21h' };
+            if (fableIdx >= 0) state.providers.claude.metrics[fableIdx] = fableMetric;
+            else state.providers.claude.metrics.push(fableMetric);
+          }
+        } else if (providerId === 'codex') {
+          if (typeof parsed.sessionUsedPct === 'number') state.providers.codex.limits[0].usedPct = parsed.sessionUsedPct;
+          if (parsed.sessionResetText) state.providers.codex.limits[0].resetText = parsed.sessionResetText;
+          if (typeof parsed.weeklyUsedPct === 'number') state.providers.codex.limits[1].usedPct = parsed.weeklyUsedPct;
+          if (parsed.weeklyResetText) state.providers.codex.limits[1].resetText = parsed.weeklyResetText;
+        } else if (providerId === 'antigravity') {
+          if (typeof parsed.geminiWeeklyUsedPct === 'number') state.providers.antigravity.groups[0].items[1].usedPct = parsed.geminiWeeklyUsedPct;
+          if (typeof parsed.gemini5hUsedPct === 'number') state.providers.antigravity.groups[0].items[0].usedPct = parsed.gemini5hUsedPct;
+          if (typeof parsed.claudeGptWeeklyUsedPct === 'number') state.providers.antigravity.groups[1].items[1].usedPct = parsed.claudeGptWeeklyUsedPct;
+          if (typeof parsed.claudeGpt5hUsedPct === 'number') state.providers.antigravity.groups[1].items[0].usedPct = parsed.claudeGpt5hUsedPct;
+          if (typeof parsed.argonWeeklyUsedPct === 'number') state.providers.antigravity.groups[2].items[0].usedPct = parsed.argonWeeklyUsedPct;
+        }
+
+        saveState(state);
+        const routing = evaluateRoutes(state, state.taskType || 'deep');
+        return sendJson(res, 200, { ok: true, parsed, state, routing, accounts: getMaskedAccounts() });
       }
 
       // Sync real accounts & local watchers now

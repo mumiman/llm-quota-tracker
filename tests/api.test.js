@@ -220,3 +220,34 @@ test('POST /api/accounts/session-sync updates usage from browser login session',
   assert.equal(data.state.providers.claude.metrics[1].usedPct, 12);
   assert.equal(data.accounts.providers.claude.connected, true);
 });
+
+test('POST /api/accounts/parse-usage parses exact Claude Pro usage page text accurately', async () => {
+  const sampleClaudePage = `Your usage Pro
+On track. You should reach the Nov 20 reset with room to spare.
+Current session
+Starts with your first message
+0% used
+This week
+Resets Friday 11:00 PM
+11% used
+Fable
+Up to 50% of your weekly limit
+Resets Friday 11:00 PM
+14% used`;
+
+  const res = await fetch(`${baseUrl}/api/accounts/parse-usage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'claude', rawText: sampleClaudePage })
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.state.providers.claude.metrics[0].usedPct, 0);
+  assert.equal(data.state.providers.claude.metrics[0].resetText, 'Starts with your first message');
+  assert.equal(data.state.providers.claude.metrics[1].usedPct, 11);
+  assert.equal(data.state.providers.claude.metrics[1].resetText, 'Resets Friday 11:00 PM');
+  const fable = data.state.providers.claude.metrics.find(m => m.id === 'fable');
+  assert.ok(fable);
+  assert.equal(fable.usedPct, 14);
+});

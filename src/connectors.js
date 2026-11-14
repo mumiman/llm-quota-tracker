@@ -210,13 +210,12 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
   saveAccounts(accounts);
 
   // Apply real rate-limit headers if returned by upstream APIs
+  // (Do NOT overwrite usedPct with rough local JSONL line-count estimates, which caused false 100% spikes)
   if (claudeRes.ok && claudeRes.rateLimit?.hasHeaders) {
     state.providers.claude.metrics[0].usedPct = claudeRes.rateLimit.usedPct;
     if (claudeRes.rateLimit.resetText) {
       state.providers.claude.metrics[0].resetText = claudeRes.rateLimit.resetText;
     }
-  } else if (applyLocalEstimates && localScan.sources.claude.detected && localScan.sources.claude.recent5hEvents > 0) {
-    state.providers.claude.metrics[0].usedPct = Math.min(100, Math.round((localScan.sources.claude.recent5hEvents / 45) * 100));
   }
 
   if (codexRes.ok && codexRes.rateLimit?.hasHeaders) {
@@ -224,13 +223,6 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
     if (codexRes.rateLimit.resetText) {
       state.providers.codex.limits[0].resetText = codexRes.rateLimit.resetText;
     }
-  } else if (applyLocalEstimates && localScan.sources.codex.detected && localScan.sources.codex.recent5hEvents > 0) {
-    state.providers.codex.limits[0].usedPct = Math.min(100, Math.round((localScan.sources.codex.recent5hEvents / 50) * 100));
-  }
-
-  if (applyLocalEstimates && localScan.sources.antigravity.detected && localScan.sources.antigravity.recent5hEvents > 0) {
-    const estPct = Math.min(100, Math.round((localScan.sources.antigravity.recent5hEvents / 100) * 100));
-    state.providers.antigravity.groups[0].items[0].usedPct = Math.max(state.providers.antigravity.groups[0].items[0].usedPct, estPct);
   }
 
   saveState(state);
@@ -247,8 +239,60 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
   };
 }
 
+/**
+ * Parses copied text or DOM innerText from Claude / Codex / Antigravity usage pages
+ * into normalized % used and reset text.
+ */
+function parseUsagePageText(providerId, rawText) {
+  const text = String(rawText || '');
+
+  if (providerId === 'claude') {
+    const usedMatches = [...text.matchAll(/(\d{1,3})%\s*used/gi)].map(m => Number(m[1]));
+    const summaryMatch = text.match(/(On track\.[^\n]+|Fresh week\.[^\n]+)/i);
+    const sessionResetMatch = text.match(/(Starts with your first message|Resets at [^\n]+)/i);
+    const weekResetMatch = text.match(/(Resets (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[^\n]+)/i);
+
+    return {
+      ok: usedMatches.length > 0,
+      summary: summaryMatch ? summaryMatch[1].trim() : null,
+      sessionUsedPct: usedMatches[0] ?? null,
+      weeklyUsedPct: usedMatches[1] ?? null,
+      fableUsedPct: usedMatches[2] ?? null,
+      sessionResetText: sessionResetMatch ? sessionResetMatch[1].trim() : null,
+      weeklyResetText: weekResetMatch ? weekResetMatch[1].trim() : null
+    };
+  }
+
+  if (providerId === 'codex') {
+    const leftMatches = [...text.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
+    const resetMatches = [...text.matchAll(/(Resets in [^\n]+)/gi)].map(m => m[1].trim());
+    return {
+      ok: leftMatches.length > 0,
+      sessionUsedPct: leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null,
+      weeklyUsedPct: leftMatches[1] !== undefined ? Math.max(0, 100 - leftMatches[1]) : null,
+      sessionResetText: resetMatches[0] ?? null,
+      weeklyResetText: resetMatches[1] ?? null
+    };
+  }
+
+  if (providerId === 'antigravity') {
+    const leftMatches = [...text.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
+    return {
+      ok: leftMatches.length > 0,
+      geminiWeeklyUsedPct: leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null,
+      gemini5hUsedPct: leftMatches[1] !== undefined ? Math.max(0, 100 - leftMatches[1]) : null,
+      claudeGptWeeklyUsedPct: leftMatches[2] !== undefined ? Math.max(0, 100 - leftMatches[2]) : null,
+      claudeGpt5hUsedPct: leftMatches[3] !== undefined ? Math.max(0, 100 - leftMatches[3]) : null,
+      argonWeeklyUsedPct: leftMatches[4] !== undefined ? Math.max(0, 100 - leftMatches[4]) : null
+    };
+  }
+
+  return { ok: false };
+}
+
 module.exports = {
   parseRateLimitHeaders,
+  parseUsagePageText,
   syncClaudeAccount,
   syncCodexAccount,
   syncAntigravityAccount,

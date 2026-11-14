@@ -56,7 +56,9 @@ function inspectProviderDir(dirPath) {
           try {
             const obj = JSON.parse(line);
             const ts = obj.created_at || obj.timestamp || obj.ts;
-            if (ts) {
+            const role = obj.role || obj.type || obj.message?.role || '';
+            const isUserMsg = !role || role === 'user' || role === 'USER_INPUT' || role === 'human';
+            if (ts && isUserMsg) {
               const t = new Date(ts).getTime();
               if (!Number.isNaN(t)) {
                 countedFromLines = true;
