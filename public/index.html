@@ -758,6 +758,12 @@
     }
 
     fetchState();
+    setInterval(() => {
+      const modal = document.getElementById('accountsModal');
+      if (modal && modal.classList.contains('hidden')) {
+        fetchState();
+      }
+    }, 5000);
   </script>
 </body>
 </html>

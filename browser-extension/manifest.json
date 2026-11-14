@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Quota Tracker Sync",
+  "version": "1.0.0",
+  "description": "Syncs your logged-in Claude.ai and ChatGPT/Codex usage directly to your local LLM Quota Tracker (localhost:3456).",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "http://localhost:3456/*",
+    "http://127.0.0.1:3456/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Sync Quota to Tracker"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
