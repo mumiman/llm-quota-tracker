@@ -223,36 +223,35 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
 
   const nowIso = new Date().toISOString();
 
-  accounts.providers.antigravity.connected = agyRes.connected || localScan.sources.antigravity.detected;
-  accounts.providers.antigravity.lastSyncAt = nowIso;
-  accounts.providers.antigravity.lastStatus = agyRes.ok
-    ? agyRes.status
-    : (localScan.sources.antigravity.detected ? `Local Watcher Active (${localScan.sources.antigravity.recent5hEvents} events/5h)` : agyRes.status);
-
-  accounts.providers.claude.connected = claudeRes.connected || localScan.sources.claude.detected;
-  accounts.providers.claude.lastSyncAt = nowIso;
-  accounts.providers.claude.lastStatus = claudeRes.ok
-    ? claudeRes.status
-    : (localScan.sources.claude.detected ? `Local Watcher Active (${localScan.sources.claude.recent5hEvents} events/5h)` : claudeRes.status);
-
-  accounts.providers.codex.connected = codexRes.connected || localScan.sources.codex.detected;
-  accounts.providers.codex.lastSyncAt = nowIso;
-  accounts.providers.codex.lastStatus = codexRes.ok
-    ? codexRes.status
-    : (localScan.sources.codex.detected ? `Local Watcher Active (${localScan.sources.codex.recent5hEvents} events/5h)` : codexRes.status);
-
-  if (accounts.providers.kimi) {
-    accounts.providers.kimi.connected = kimiRes.connected || localScan.sources.kimi?.detected;
-    accounts.providers.kimi.lastSyncAt = nowIso;
-    accounts.providers.kimi.lastStatus = kimiRes.ok
-      ? kimiRes.status
-      : (localScan.sources.kimi?.detected ? `Local Watcher Active (${localScan.sources.kimi.recent5hEvents} events/5h)` : kimiRes.status);
+  function updateProviderSyncMeta(provId, apiRes, scanSource) {
+    const p = accounts.providers[provId];
+    if (!p) return;
+    const isWebSynced = (p.mode === 'web_auto_sync' || p.mode === 'browser_oauth') && p.connected;
+    if (apiRes.ok) {
+      p.connected = true;
+      p.lastSyncAt = nowIso;
+      p.lastStatus = apiRes.status;
+    } else if (isWebSynced) {
+      // Preserve live Browser Extension / Web OAuth sync status instead of overwriting with local CLI message
+      p.connected = true;
+    } else {
+      // Only mark connected = true when real API or Browser Extension sync is active
+      p.connected = false;
+      p.lastSyncAt = nowIso;
+      p.lastStatus = scanSource?.detected
+        ? `Local CLI detected (${scanSource.recent5hEvents} events/5h) — waiting for Browser Extension Auto-Sync`
+        : apiRes.status;
+    }
   }
+
+  updateProviderSyncMeta('antigravity', agyRes, localScan.sources.antigravity);
+  updateProviderSyncMeta('claude', claudeRes, localScan.sources.claude);
+  updateProviderSyncMeta('codex', codexRes, localScan.sources.codex);
+  updateProviderSyncMeta('kimi', kimiRes, localScan.sources.kimi);
 
   saveAccounts(accounts);
 
   // Apply real rate-limit headers if returned by upstream APIs
-  // (Do NOT overwrite usedPct with rough local JSONL line-count estimates, which caused false 100% spikes)
   if (claudeRes.ok && claudeRes.rateLimit?.hasHeaders) {
     state.providers.claude.metrics[0].usedPct = claudeRes.rateLimit.usedPct;
     if (claudeRes.rateLimit.resetText) {
@@ -289,18 +288,87 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
   };
 }
 
+function extractAntigravityPopoverBlock(text) {
+  let searchEnd = text.length;
+  let fallbackBlock = null;
+
+  while (searchEnd > 0) {
+    const idx = text.lastIndexOf('Gemini Models', searchEnd);
+    if (idx === -1) break;
+    const candidate = text.slice(idx, idx + 750);
+    const hasClaudeGpt = /Claude and GPT models/i.test(candidate);
+    const hasArgon = /Gemini 4 Argon/i.test(candidate);
+    if (hasClaudeGpt && hasArgon) {
+      const argonMatch = candidate.match(/Gemini 4 Argon/i);
+      const endOffset = argonMatch ? argonMatch.index + 140 : candidate.length;
+      const block = candidate.slice(0, endOffset);
+      if (!fallbackBlock) fallbackBlock = block;
+      // Native Antigravity Usage popover only uses "% left", never "% used" or markdown tables
+      if (!/\d{1,3}%\s*used/i.test(block) && !block.includes('|')) {
+        return block;
+      }
+    }
+    searchEnd = idx - 1;
+  }
+
+  return fallbackBlock || text;
+}
+
+function parseTwoTierAntigravitySection(sec) {
+  if (!sec) {
+    return {
+      weeklyUsedPct: null,
+      fiveHourUsedPct: null,
+      weeklyResetText: null,
+      fiveHourResetText: null
+    };
+  }
+  const leftMatches = [...sec.matchAll(/(\d{1,3})%\s*left/gi)];
+  const weeklyLeft = leftMatches[0] ? Number(leftMatches[0][1]) : null;
+  const fiveHourLeft = leftMatches[1] ? Number(leftMatches[1][1]) : null;
+
+  const weeklyUsedPct = weeklyLeft !== null ? Math.min(100, Math.max(0, 100 - weeklyLeft)) : null;
+  const fiveHourUsedPct = fiveHourLeft !== null ? Math.min(100, Math.max(0, 100 - fiveHourLeft)) : null;
+
+  const weeklyPart = leftMatches[1] ? sec.slice(0, leftMatches[1].index) : sec;
+  const fiveHourPart = leftMatches[1] ? sec.slice(leftMatches[1].index) : '';
+
+  const weeklyResetMatch = weeklyPart.match(/resets?\s+in\s+([^\n,|]+)/i);
+  const fiveHourResetMatch = fiveHourPart.match(/resets?\s+in\s+([^\n,|]+)/i);
+
+  const weeklyResetText = weeklyResetMatch
+    ? `Resets in ${weeklyResetMatch[1].trim()}`
+    : (weeklyUsedPct === 0 ? '100% left (Weekly limit)' : null);
+
+  const fiveHourResetText = fiveHourResetMatch
+    ? `Resets in ${fiveHourResetMatch[1].trim()}`
+    : (fiveHourUsedPct === 0 ? '100% left (5h limit)' : null);
+
+  return {
+    weeklyUsedPct,
+    fiveHourUsedPct,
+    weeklyResetText,
+    fiveHourResetText
+  };
+}
+
 /**
- * Parses copied text or DOM innerText from Claude / Codex / Antigravity usage pages
- * into normalized % used and reset text.
+ * Parses copied text or DOM innerText from Claude / Codex / Antigravity / Kimi usage pages
+ * into normalized % used and reset text, isolating actual usage blocks from chat history.
  */
 function parseUsagePageText(providerId, rawText) {
   const text = String(rawText || '');
 
   if (providerId === 'claude') {
-    const usedMatches = [...text.matchAll(/(\d{1,3})%\s*used/gi)].map(m => Number(m[1]));
+    const lastHeaderIdx = Math.max(
+      text.lastIndexOf('Plan usage limits'),
+      text.lastIndexOf('Current session')
+    );
+    const scope = lastHeaderIdx >= 0 ? text.slice(lastHeaderIdx, lastHeaderIdx + 1200) : text;
+    const usedMatches = [...scope.matchAll(/(\d{1,3})%\s*used/gi)].map(m => Number(m[1]));
     const summaryMatch = text.match(/(On track\.[^\n]+|Fresh week\.[^\n]+)/i);
-    const sessionResetMatch = text.match(/(Starts with your first message|Resets at [^\n]+)/i);
-    const weekResetMatch = text.match(/(Resets (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[^\n]+)/i);
+    const sessionResetMatch = scope.match(/(Starts with your first message|Resets (?:in|at) [^\n]+)/i);
+    const weekResetMatch = scope.match(/(Resets (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n]+)/i);
 
     return {
       ok: usedMatches.length > 0,
@@ -314,8 +382,30 @@ function parseUsagePageText(providerId, rawText) {
   }
 
   if (providerId === 'codex') {
-    const leftMatches = [...text.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
-    const resetMatches = [...text.matchAll(/(Resets in [^\n]+)/gi)].map(m => m[1].trim());
+    const lastHeaderIdx = text.lastIndexOf('5-hour limit');
+    const scope = lastHeaderIdx >= 0 ? text.slice(Math.max(0, lastHeaderIdx - 40), lastHeaderIdx + 800) : text;
+    const weeklyIdx = scope.search(/Weekly limit/i);
+
+    if (weeklyIdx >= 0 && lastHeaderIdx >= 0) {
+      const fiveHSec = scope.slice(0, weeklyIdx);
+      const weekSec = scope.slice(weeklyIdx);
+      const sLeft = fiveHSec.match(/(\d{1,3})%\s*left/i);
+      const wLeft = weekSec.match(/(\d{1,3})%\s*left/i);
+      const sReset = fiveHSec.match(/(Resets in [^\n]+)/i);
+      const wReset = weekSec.match(/(Resets in [^\n]+)/i);
+      const sessionUsedPct = sLeft ? Math.max(0, 100 - Number(sLeft[1])) : null;
+      const weeklyUsedPct = wLeft ? Math.max(0, 100 - Number(wLeft[1])) : null;
+      return {
+        ok: sessionUsedPct !== null || weeklyUsedPct !== null,
+        sessionUsedPct,
+        weeklyUsedPct,
+        sessionResetText: sReset ? sReset[1].trim() : (sessionUsedPct === 0 ? '100% left (5h limit)' : null),
+        weeklyResetText: wReset ? wReset[1].trim() : null
+      };
+    }
+
+    const leftMatches = [...scope.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
+    const resetMatches = [...scope.matchAll(/(Resets in [^\n]+)/gi)].map(m => m[1].trim());
     return {
       ok: leftMatches.length > 0,
       sessionUsedPct: leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null,
@@ -326,8 +416,43 @@ function parseUsagePageText(providerId, rawText) {
   }
 
   if (providerId === 'antigravity') {
-    const leftMatches = [...text.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
-    const resetMatches = [...text.matchAll(/resets?\s+in\s+([^\n,]+)/gi)].map(m => `Resets in ${m[1].trim()}`);
+    const block = extractAntigravityPopoverBlock(text);
+    const cgIdx = block.search(/Claude and GPT models/i);
+    const argonIdx = block.search(/Gemini 4 Argon/i);
+
+    if (cgIdx >= 0 && argonIdx > cgIdx) {
+      const geminiSec = block.slice(0, cgIdx);
+      const claudeGptSec = block.slice(cgIdx, argonIdx);
+      const argonSec = block.slice(argonIdx, argonIdx + 140);
+
+      const gemini = parseTwoTierAntigravitySection(geminiSec);
+      const claudeGpt = parseTwoTierAntigravitySection(claudeGptSec);
+
+      const argonLeftMatch = argonSec.match(/(\d{1,3})%\s*left/i);
+      const argonWeeklyUsedPct = argonLeftMatch ? Math.min(100, Math.max(0, 100 - Number(argonLeftMatch[1]))) : null;
+      const argonResetMatch = argonSec.match(/resets?\s+in\s+([^\n,|]+)/i);
+      const argonWeeklyResetText = argonResetMatch
+        ? `Resets in ${argonResetMatch[1].trim()}`
+        : (argonWeeklyUsedPct === 0 ? '100% left (Weekly limit)' : null);
+
+      return {
+        ok: gemini.weeklyUsedPct !== null || claudeGpt.weeklyUsedPct !== null || argonWeeklyUsedPct !== null,
+        geminiWeeklyUsedPct: gemini.weeklyUsedPct,
+        gemini5hUsedPct: gemini.fiveHourUsedPct,
+        claudeGptWeeklyUsedPct: claudeGpt.weeklyUsedPct,
+        claudeGpt5hUsedPct: claudeGpt.fiveHourUsedPct,
+        argonWeeklyUsedPct,
+        geminiWeeklyResetText: gemini.weeklyResetText,
+        gemini5hResetText: gemini.fiveHourResetText,
+        claudeGptWeeklyResetText: claudeGpt.weeklyResetText,
+        claudeGpt5hResetText: claudeGpt.fiveHourResetText,
+        argonWeeklyResetText
+      };
+    }
+
+    // Fallback for partial Antigravity snippet paste
+    const leftMatches = [...block.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
+    const resetMatches = [...block.matchAll(/resets?\s+in\s+([^\n,|]+)/gi)].map(m => `Resets in ${m[1].trim()}`);
     return {
       ok: leftMatches.length > 0,
       geminiWeeklyUsedPct: leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null,
@@ -338,6 +463,7 @@ function parseUsagePageText(providerId, rawText) {
       geminiWeeklyResetText: resetMatches[0] ?? null,
       gemini5hResetText: resetMatches[1] ?? null,
       claudeGptWeeklyResetText: resetMatches[2] ?? null,
+      claudeGpt5hResetText: leftMatches[3] === 100 ? '100% left (5h limit)' : null,
       argonWeeklyResetText: resetMatches[3] ?? null
     };
   }

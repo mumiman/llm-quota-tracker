@@ -54,6 +54,9 @@
         <div id="traySummary" class="flex flex-wrap items-center gap-2 font-mono text-xs"></div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
+        <span id="extStatusBadge" onclick="openAccountsModal()" class="cursor-pointer px-2 py-1 rounded-md border border-theme text-muted font-mono transition" title="Browser Extension Auto-Sync Status">
+          ⚪ Checking Extension...
+        </span>
         <button onclick="openAccountsModal()" class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition">
           Connect Accounts & Proxy
         </button>
@@ -535,10 +538,29 @@
       const p = appAccounts.providers[id];
       return p.connected
         ? `<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block" title="${p.lastStatus}"></span>`
-        : `<span class="w-2 h-2 rounded-full bg-zinc-500 inline-block" title="Not connected"></span>`;
+        : `<span class="w-2 h-2 rounded-full bg-zinc-500 inline-block" title="${p.lastStatus || 'Not connected'}"></span>`;
+    }
+
+    function syncStatusLine(id) {
+      const p = appAccounts?.providers?.[id];
+      if (!p) return '';
+      const cls = p.connected ? 'text-emerald-400' : 'text-muted';
+      return `<div class="text-[11px] truncate ${cls}" title="${p.lastStatus || ''}">${p.lastStatus || 'Waiting for Browser Extension Auto-Sync'}</div>`;
     }
 
     function renderTraySummary() {
+      const extVer = document.documentElement.getAttribute('data-quota-ext');
+      const extBadge = document.getElementById('extStatusBadge');
+      if (extBadge) {
+        if (extVer) {
+          extBadge.className = 'cursor-pointer px-2 py-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 font-mono transition';
+          extBadge.textContent = `🟢 Ext v${extVer} Live`;
+        } else {
+          extBadge.className = 'cursor-pointer px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-400 font-mono transition';
+          extBadge.textContent = '🟠 Reload Extension (v3.0)';
+        }
+      }
+
       const agyPeak = Math.max(...appState.providers.antigravity.groups.flatMap(g => g.items.map(i => i.usedPct)));
       const claudePeak = Math.max(...appState.providers.claude.metrics.map(m => m.usedPct));
       const codexPeak = Math.max(...appState.providers.codex.limits.map(l => l.usedPct));
@@ -574,9 +596,12 @@
         <div onclick="selectProviderCard('antigravity')"
              class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-2.5 transition"
              style="${isSel('antigravity') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
-          <div class="flex items-center justify-between border-b border-theme pb-2">
-            <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('antigravity')} Antigravity</span>
-            <span class="text-xs ${isSel('antigravity') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('antigravity') ? '● Reset View' : 'Click for Reset →'}</span>
+          <div class="border-b border-theme pb-2 space-y-0.5">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('antigravity')} Antigravity</span>
+              <span class="text-xs ${isSel('antigravity') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('antigravity') ? '● Reset View' : 'Click for Reset →'}</span>
+            </div>
+            ${syncStatusLine('antigravity')}
           </div>
           ${agy.groups.map((grp, idx) => `
             <div class="space-y-2 ${idx > 0 ? 'pt-2 border-t border-theme' : ''}">
@@ -591,9 +616,12 @@
         <div onclick="selectProviderCard('claude')"
              class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-3 transition"
              style="${isSel('claude') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
-          <div class="flex items-center justify-between border-b border-theme pb-2">
-            <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('claude')} Claude</span>
-            <span class="text-xs ${isSel('claude') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('claude') ? '● Reset View' : 'Click for Reset →'}</span>
+          <div class="border-b border-theme pb-2 space-y-0.5">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('claude')} Claude</span>
+              <span class="text-xs ${isSel('claude') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('claude') ? '● Reset View' : 'Click for Reset →'}</span>
+            </div>
+            ${syncStatusLine('claude')}
           </div>
           <div class="text-xs font-medium">${claude.summary}</div>
           ${claude.metrics.map(m => `<div class="pt-2 border-t border-theme">${renderBarRow(m)}</div>`).join('')}
@@ -604,12 +632,15 @@
         <div onclick="selectProviderCard('codex')"
              class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-3 transition"
              style="${isSel('codex') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
-          <div class="flex items-center justify-between border-b border-theme pb-2">
-            <div class="flex items-center gap-2">
-              <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('codex')} Codex</span>
-              <span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-mono">${codex.resetsAvailable.length} Resets</span>
+          <div class="border-b border-theme pb-2 space-y-0.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('codex')} Codex</span>
+                <span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-mono">${codex.resetsAvailable.length} Resets</span>
+              </div>
+              <span class="text-xs ${isSel('codex') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('codex') ? '● Reset View' : 'Click for Reset →'}</span>
             </div>
-            <span class="text-xs ${isSel('codex') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('codex') ? '● Reset View' : 'Click for Reset →'}</span>
+            ${syncStatusLine('codex')}
           </div>
           <div class="text-xs text-muted">${codex.summary}</div>
           ${codex.limits.map(lim => `<div class="pt-2 border-t border-theme">${renderBarRow(lim)}</div>`).join('')}
@@ -620,9 +651,12 @@
         <div onclick="selectProviderCard('kimi')"
              class="card card-interactive cursor-pointer rounded-xl p-3.5 space-y-3 transition"
              style="${isSel('kimi') ? 'border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6;' : ''}">
-          <div class="flex items-center justify-between border-b border-theme pb-2">
-            <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('kimi')} Kimi (kimi.ai)</span>
-            <span class="text-xs ${isSel('kimi') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('kimi') ? '● Reset View' : 'Click for Reset →'}</span>
+          <div class="border-b border-theme pb-2 space-y-0.5">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-sm flex items-center gap-1.5">${connBadge('kimi')} Kimi (kimi.ai)</span>
+              <span class="text-xs ${isSel('kimi') ? 'text-blue-400 font-semibold' : 'text-muted'}">${isSel('kimi') ? '● Reset View' : 'Click for Reset →'}</span>
+            </div>
+            ${syncStatusLine('kimi')}
           </div>
           <div class="text-xs text-muted">${kimi.summary}</div>
           ${kimi.limits.map(lim => `<div class="pt-2 border-t border-theme">${renderBarRow(lim)}</div>`).join('')}

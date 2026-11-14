@@ -12,7 +12,7 @@ function getInitialState() {
       antigravity: {
         id: 'antigravity',
         name: 'Antigravity',
-        summary: 'Claude & GPT models at 78% weekly usage.',
+        summary: 'Gemini 4%w • Claude & GPT 78%w • Argon 7%w',
         cliCommand: 'agy config set --model gemini-4-argon',
         groups: [
           {
@@ -20,8 +20,8 @@ function getInitialState() {
             name: 'Gemini Models',
             strengths: ['agentic', 'fast', 'deep'],
             items: [
-              { id: 'g_5h', label: 'Current session (5h limit)', usedPct: 13, resetText: 'Resets in <1m', windowHours: 5 },
-              { id: 'g_weekly', label: 'This week (Weekly limit)', usedPct: 4, resetText: 'Resets in 6d 19h', windowHours: 168 }
+              { id: 'g_5h', label: 'Current session (5h limit)', usedPct: 2, resetText: 'Resets in 4h 44m', windowHours: 5 },
+              { id: 'g_weekly', label: 'This week (Weekly limit)', usedPct: 4, resetText: 'Resets in 6d 18h', windowHours: 168 }
             ]
           },
           {
@@ -29,7 +29,7 @@ function getInitialState() {
             name: 'Claude and GPT models',
             strengths: ['deep', 'agentic'],
             items: [
-              { id: 'cg_5h', label: 'Current session (5h limit)', usedPct: 0, resetText: 'Resets in 5h 00m', windowHours: 5 },
+              { id: 'cg_5h', label: 'Current session (5h limit)', usedPct: 0, resetText: '100% left (5h limit)', windowHours: 5 },
               { id: 'cg_weekly', label: 'This week (Weekly limit)', usedPct: 78, resetText: 'Resets in 1d 11h', windowHours: 168 }
             ]
           },
@@ -38,7 +38,7 @@ function getInitialState() {
             name: 'Gemini 4 Argon',
             strengths: ['agentic', 'deep'],
             items: [
-              { id: 'argon_weekly', label: 'This week (Weekly limit)', usedPct: 2, resetText: 'Resets in 6d 18h', windowHours: 168 }
+              { id: 'argon_weekly', label: 'This week (Weekly limit)', usedPct: 7, resetText: 'Resets in 6d 18h', windowHours: 168 }
             ]
           }
         ]
@@ -110,7 +110,15 @@ function loadState() {
   }
   try {
     const raw = fs.readFileSync(STATE_FILE, 'utf8');
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    // Clean up any state that was polluted by the earlier chat-transcript regex bug ('Resets in <1m' / 13% used)
+    const g0 = parsed?.providers?.antigravity?.groups?.[0]?.items?.[0];
+    if (g0 && g0.resetText === 'Resets in <1m' && g0.usedPct === 13) {
+      const freshAgy = getInitialState().providers.antigravity;
+      parsed.providers.antigravity = freshAgy;
+      saveState(parsed);
+    }
+    return parsed;
   } catch {
     const init = getInitialState();
     saveState(init);

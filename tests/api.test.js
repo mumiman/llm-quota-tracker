@@ -328,6 +328,57 @@ Weekly limit, resets in 6d 18h`;
   assert.equal(agy.groups[1].items[1].usedPct, 78);
   assert.equal(agy.groups[1].items[1].resetText, 'Resets in 1d 11h');
   assert.equal(agy.groups[1].items[0].usedPct, 0);
+  assert.equal(agy.groups[1].items[0].resetText, '100% left (5h limit)');
   assert.equal(agy.groups[2].items[0].usedPct, 2);
   assert.equal(agy.groups[2].items[0].resetText, 'Resets in 6d 18h');
 });
+
+test('Antigravity parse-usage isolates real Usage popover from noisy chat history and updates 100% left reset text', async () => {
+  const noisyFullPageWithChatHistory = `
+    Chat Conversation History:
+    | Gemini Models (Weekly) | 96% left | 4% used | Resets in 6d 19h |
+    | Gemini Models (5h limit) | 87% left | 13% used | Resets in <1m |
+    | Claude and GPT models | 22% left | 78% used | Resets in 1d 11h |
+    | Gemini 4 Argon | 98% left | 2% used | Resets in 6d 18h |
+
+    Usage
+    Gemini Models
+    96% left
+    Weekly limit
+    Resets in 6d 18h
+    98% left
+    5h limit
+    Resets in 4h 44m
+    Claude and GPT models
+    22% left
+    Weekly limit
+    Resets in 1d 11h
+    100% left
+    5h limit
+    Gemini 4 Argon
+    93% left
+    Weekly limit, resets in 6d 18h
+  `;
+
+  const res = await fetch(`${baseUrl}/api/accounts/parse-usage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'antigravity', rawText: noisyFullPageWithChatHistory })
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  const agy = data.state.providers.antigravity;
+
+  // Must match the real Usage popover at the bottom, NOT the chat history table at the top!
+  assert.equal(agy.groups[0].items[0].usedPct, 2);
+  assert.equal(agy.groups[0].items[0].resetText, 'Resets in 4h 44m');
+  assert.equal(agy.groups[0].items[1].usedPct, 4);
+  assert.equal(agy.groups[0].items[1].resetText, 'Resets in 6d 18h');
+  assert.equal(agy.groups[1].items[0].usedPct, 0);
+  assert.equal(agy.groups[1].items[0].resetText, '100% left (5h limit)');
+  assert.equal(agy.groups[1].items[1].usedPct, 78);
+  assert.equal(agy.groups[1].items[1].resetText, 'Resets in 1d 11h');
+  assert.equal(agy.groups[2].items[0].usedPct, 7);
+  assert.equal(agy.groups[2].items[0].resetText, 'Resets in 6d 18h');
+});
+

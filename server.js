@@ -199,8 +199,14 @@ function createServer() {
           if (typeof parsed.claudeGptWeeklyUsedPct === 'number') state.providers.antigravity.groups[1].items[1].usedPct = parsed.claudeGptWeeklyUsedPct;
           if (parsed.claudeGptWeeklyResetText) state.providers.antigravity.groups[1].items[1].resetText = parsed.claudeGptWeeklyResetText;
           if (typeof parsed.claudeGpt5hUsedPct === 'number') state.providers.antigravity.groups[1].items[0].usedPct = parsed.claudeGpt5hUsedPct;
+          if (parsed.claudeGpt5hResetText) state.providers.antigravity.groups[1].items[0].resetText = parsed.claudeGpt5hResetText;
           if (typeof parsed.argonWeeklyUsedPct === 'number') state.providers.antigravity.groups[2].items[0].usedPct = parsed.argonWeeklyUsedPct;
           if (parsed.argonWeeklyResetText) state.providers.antigravity.groups[2].items[0].resetText = parsed.argonWeeklyResetText;
+
+          const gW = state.providers.antigravity.groups[0].items[1].usedPct;
+          const cgW = state.providers.antigravity.groups[1].items[1].usedPct;
+          const argW = state.providers.antigravity.groups[2].items[0].usedPct;
+          state.providers.antigravity.summary = `Gemini ${gW}%w • Claude & GPT ${cgW}%w • Argon ${argW}%w`;
         } else if (providerId === 'kimi' && state.providers.kimi) {
           if (typeof parsed.sessionUsedPct === 'number') state.providers.kimi.limits[0].usedPct = parsed.sessionUsedPct;
           if (parsed.sessionResetText) state.providers.kimi.limits[0].resetText = parsed.sessionResetText;
