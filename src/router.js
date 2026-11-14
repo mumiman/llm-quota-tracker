@@ -91,7 +91,15 @@ function evaluateRoutes(state, taskType = 'deep') {
     alerts.push({
       severity: 'critical',
       provider: 'claude',
-      message: `Claude session is at ${claudePeak}% used (${claude.metrics[0].resetText}). Pause Claude and route to ${best.label}.`
+      message: `Claude quota is at ${claudePeak}% used (${claude.metrics[0].resetText}). Pause Claude and route to ${best.label}.`
+    });
+  }
+  const fableMetric = claude.metrics.find(m => m.id === 'fable');
+  if (fableMetric && fableMetric.usedPct >= 75) {
+    alerts.push({
+      severity: 'warning',
+      provider: 'claude',
+      message: `Claude Fable limit is at ${fableMetric.usedPct}% used (${fableMetric.subtitle || 'Up to 50% of weekly limit'}). Consider switching to ${best.label}.`
     });
   }
   if (codexPeak >= 75 && codex.resetsAvailable.length > 0) {

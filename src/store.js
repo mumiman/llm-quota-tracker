@@ -46,12 +46,13 @@ function getInitialState() {
       claude: {
         id: 'claude',
         name: 'Claude',
-        summary: 'Fresh week. 6% of your weekly limit used.',
+        summary: 'On track. You should reach the Nov 20 reset with room to spare.',
         cliCommand: 'export ANTHROPIC_MODEL="claude-3-7-sonnet-latest"',
         strengths: ['deep', 'agentic'],
         metrics: [
-          { id: 'session', label: 'Current session', usedPct: 32, resetText: 'Resets at 8:30 PM', countdown: '2h 14m' },
-          { id: 'week', label: 'This week', usedPct: 6, resetText: 'Resets Friday 11:00 PM', countdown: '5d 21h' }
+          { id: 'session', label: 'Current session', usedPct: 0, resetText: 'Starts with your first message', countdown: '5h 00m' },
+          { id: 'week', label: 'This week', usedPct: 11, resetText: 'Resets Friday 11:00 PM', countdown: '5d 21h' },
+          { id: 'fable', label: 'Fable', subtitle: 'Up to 50% of your weekly limit', usedPct: 14, resetText: 'Resets Friday 11:00 PM', countdown: '5d 21h' }
         ]
       },
       codex: {
@@ -126,6 +127,10 @@ function recordUsage(state, { providerId, groupId, amount = 10 }) {
   } else if (providerId === 'claude') {
     state.providers.claude.metrics[0].usedPct = Math.min(100, state.providers.claude.metrics[0].usedPct + amount);
     state.providers.claude.metrics[1].usedPct = Math.min(100, state.providers.claude.metrics[1].usedPct + Math.max(1, Math.round(amount * 0.35)));
+    const fable = state.providers.claude.metrics.find(m => m.id === 'fable');
+    if (fable) {
+      fable.usedPct = Math.min(100, fable.usedPct + Math.max(1, Math.round(amount * 0.45)));
+    }
     state.providers.claude.summary = `Fresh week. ${state.providers.claude.metrics[1].usedPct}% of your weekly limit used.`;
   } else if (providerId === 'codex') {
     state.providers.codex.limits[0].usedPct = Math.min(100, state.providers.codex.limits[0].usedPct + amount);
@@ -187,6 +192,9 @@ function applyReset(state, { providerId, groupId, ticketId }) {
     } else if (groupId === 'week') {
       state.providers.claude.metrics[1].usedPct = 0;
       state.providers.claude.summary = 'Fresh week. 0% of your weekly limit used.';
+    } else if (groupId === 'fable') {
+      const fable = state.providers.claude.metrics.find(m => m.id === 'fable');
+      if (fable) fable.usedPct = 0;
     } else {
       state.providers.claude.metrics.forEach(m => { m.usedPct = 0; });
       state.providers.claude.summary = 'Fresh week. 0% of your weekly limit used.';

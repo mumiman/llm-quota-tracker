@@ -251,3 +251,17 @@ Resets Friday 11:00 PM
   assert.ok(fable);
   assert.equal(fable.usedPct, 14);
 });
+
+test('POST /api/reset resets Claude Fable quota individually without clearing This week', async () => {
+  const res = await fetch(`${baseUrl}/api/reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'claude', groupId: 'fable' })
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  const fable = data.state.providers.claude.metrics.find(m => m.id === 'fable');
+  const week = data.state.providers.claude.metrics.find(m => m.id === 'week');
+  assert.equal(fable.usedPct, 0);
+  assert.equal(week.usedPct, 11);
+});
