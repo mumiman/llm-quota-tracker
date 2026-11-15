@@ -26,7 +26,7 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
 
     // 1. If this tab is the LLM Quota Tracker Dashboard (localhost:3456)
     if ((host === 'localhost' || host === '127.0.0.1') && port === '3456') {
-      document.documentElement.setAttribute('data-quota-ext', '3.4.0');
+      document.documentElement.setAttribute('data-quota-ext', '3.5.0');
       const syncReq = document.documentElement.getAttribute('data-quota-sync-request');
       const openReq = document.documentElement.getAttribute('data-quota-open-provider');
       if (syncReq) document.documentElement.removeAttribute('data-quota-sync-request');
@@ -160,7 +160,7 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
       };
     }
 
-    // 5. Antigravity Workspace Detection & Usage Popover Extraction
+    // 5. Antigravity Workspace Detection & Usage Popover / Models & Usage Extraction
     function findAntigravityPopoverText() {
       const allEls = collectAllElements(document);
       let bestPopoverText = '';
@@ -174,13 +174,13 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
         if (isInsideCodeOrChatBubble(el)) continue;
 
         const t = (el.innerText || '').trim();
-        if (t.length < 55 || t.length > 1100) continue;
+        if (t.length < 55 || t.length > 2200) continue;
 
         if (
           t.includes('Gemini Models') &&
           t.includes('Claude and GPT models') &&
           t.includes('Gemini 4 Argon') &&
-          /\d{1,3}%\s*left/i.test(t) &&
+          /\d{1,3}\s*%/i.test(t) &&
           !/\d{1,3}%\s*used/i.test(t) &&
           !t.includes('|') &&
           !t.includes('Resets in <1m')
@@ -191,27 +191,44 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
           }
         }
       }
+
+      if (!bestPopoverText && host.includes('antigravity.google.com')) {
+        const bTxt = (document.body?.innerText || '').trim();
+        if (
+          bTxt.includes('Gemini Models') &&
+          bTxt.includes('Claude and GPT models') &&
+          bTxt.includes('Gemini 4 Argon') &&
+          /\d{1,3}\s*%/i.test(bTxt)
+        ) {
+          bestPopoverText = bTxt;
+        }
+      }
       return bestPopoverText;
     }
 
-    function findAntigravityUsageButton() {
+    function findElementByExactText(regex) {
       const allEls = collectAllElements(document);
       for (let i = allEls.length - 1; i >= 0; i--) {
         const el = allEls[i];
         const tag = (el.tagName || '').toUpperCase();
         if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'PRE' || tag === 'CODE') continue;
+        if (isInsideCodeOrChatBubble(el)) continue;
         const txt = (el.innerText || el.textContent || '').trim();
         const aria = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || '';
-        if ((/^Usage$/i.test(txt) || /^Usage$/i.test(aria.trim())) && el.children.length <= 4) {
+        if ((regex.test(txt) || regex.test(aria.trim())) && el.children.length <= 4) {
           return el;
         }
       }
       return null;
     }
 
+    function findAntigravityUsageButton() {
+      return findElementByExactText(/^Models$/i) || findElementByExactText(/^Usage$/i);
+    }
+
     function triggerFullClick(el) {
       if (!el) return;
-      const targets = [el, el.closest && el.closest('button, [role="button"], [aria-haspopup], a')].filter(Boolean);
+      const targets = [el, el.closest && el.closest('button, [role="button"], [aria-haspopup], a, li, div[tabindex]')].filter(Boolean);
       for (const t of targets) {
         try {
           t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window }));
@@ -244,11 +261,24 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
           (bodyTextSample.includes('Antigravity') && bodyTextSample.includes('Gemini'))
       );
 
-    if (!bestPopoverText && domLooksLikeAgy && tryOpenAntigravityPopover) {
-      const usageBtn = findAntigravityUsageButton();
-      if (usageBtn) {
-        triggerFullClick(usageBtn);
-        await new Promise((r) => setTimeout(r, 380));
+    // If on antigravity.google.com with Settings open on General, or if user clicked Sync Now / Open Usage:
+    const isSettingsOpenOnGeneral =
+      host.includes('antigravity.google.com') &&
+      (window.location.search.includes('settingsOpen=true') || bodyTextSample.includes('Appearance'));
+
+    if (!bestPopoverText && domLooksLikeAgy && (tryOpenAntigravityPopover || isSettingsOpenOnGeneral)) {
+      let modelsOrUsageBtn = findAntigravityUsageButton();
+      if (!modelsOrUsageBtn && tryOpenAntigravityPopover) {
+        const settingsBtn = findElementByExactText(/^Settings$/i);
+        if (settingsBtn) {
+          triggerFullClick(settingsBtn);
+          await new Promise((r) => setTimeout(r, 320));
+          modelsOrUsageBtn = findAntigravityUsageButton();
+        }
+      }
+      if (modelsOrUsageBtn) {
+        triggerFullClick(modelsOrUsageBtn);
+        await new Promise((r) => setTimeout(r, 420));
         bestPopoverText = findAntigravityPopoverText();
       }
     }
@@ -257,7 +287,11 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
       return {
         providerId: 'antigravity',
         rawText: bestPopoverText,
-        internalApi: { accountLabel: 'Antigravity Usage Popover' },
+        internalApi: {
+          accountLabel: host.includes('antigravity.google.com')
+            ? 'Antigravity Web (Models & Usage)'
+            : 'Antigravity Usage Popover'
+        },
         pageUrl: window.location.href,
         isAntigravityTab: true
       };

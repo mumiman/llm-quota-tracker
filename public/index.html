@@ -524,10 +524,8 @@
     }
 
     async function openAndSyncProvider(providerId) {
-      const savedAgyUrl = appAccounts?.providers?.antigravity?.webUrl || '';
-      const validAgyUrl = savedAgyUrl && !savedAgyUrl.includes('idx.google.com') ? savedAgyUrl : null;
       const urls = {
-        antigravity: validAgyUrl,
+        antigravity: 'https://antigravity.google.com/remote?settingsOpen=true&settingsScreen=General',
         claude: 'https://claude.ai/settings/usage',
         codex: 'https://chatgpt.com/codex/settings/usage',
         kimi: 'https://www.kimi.com/'
@@ -539,29 +537,19 @@
       window.postMessage({ type: 'QUOTA_TRACKER_OPEN_PROVIDER', providerId }, '*');
       window.postMessage({ type: 'QUOTA_TRACKER_SYNC_NOW' }, '*');
 
-      // 2. Open target web tab(s) synchronously on click (never open dead idx.google.com!)
+      // 2. Open target web tab(s) synchronously on click so browser popup blocker never blocks them
       if (providerId === 'all') {
+        window.open(urls.antigravity, '_blank', 'noopener');
         window.open(urls.claude, '_blank', 'noopener');
         window.open(urls.codex, '_blank', 'noopener');
         window.open(urls.kimi, '_blank', 'noopener');
-      } else if (providerId === 'antigravity') {
-        openAntigravityUsageModal();
       } else if (urls[providerId]) {
         window.open(urls[providerId], '_blank', 'noopener');
       }
 
-      // 3. For Antigravity: also trigger native macOS Desktop App focus (`open -a Antigravity`) via local server
-      if (providerId === 'antigravity' || providerId === 'all') {
-        fetch('/api/accounts/open-app', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ providerId: 'antigravity' })
-        }).catch(() => {});
-      }
-
       renderSyncStatusBox(`Opening ${providerId === 'all' ? 'All Providers' : providerId} & waiting for Auto-Sync...`);
 
-      // 4. Poll state after the extension opens & scans the target tab(s)
+      // 3. Poll state after the extension opens & scans the target tab(s)
       setTimeout(() => fetchState(), 1200);
       setTimeout(() => fetchState(), 3000);
       setTimeout(() => fetchState(), 5500);

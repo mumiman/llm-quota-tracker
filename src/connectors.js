@@ -286,18 +286,18 @@ async function syncOpenMacBrowserTabs(state, accounts) {
   const foundTabs = [];
   let appleEventsDisabled = false;
 
-  // 1. Check macOS Clipboard (pbpaste) for copied Antigravity Usage Popover text
+  // 1. Check macOS Clipboard (pbpaste) for copied Antigravity Usage Popover / Models & Usage text
   await new Promise((resolve) => {
     execFile('pbpaste', [], { timeout: 1500, maxBuffer: 1024 * 1024 }, (err, stdout) => {
       if (!err && stdout) {
         const clip = String(stdout).trim();
         if (
           clip.length >= 45 &&
-          clip.length <= 2500 &&
+          clip.length <= 3000 &&
           /Gemini Models/i.test(clip) &&
           /Claude and GPT models/i.test(clip) &&
           /Gemini 4 Argon/i.test(clip) &&
-          /\d{1,3}%\s*left/i.test(clip) &&
+          /\d{1,3}\s*%/i.test(clip) &&
           !/\d{1,3}%\s*used/i.test(clip) &&
           !clip.includes('|')
         ) {
@@ -499,15 +499,15 @@ function extractAntigravityPopoverBlock(text) {
   while (searchEnd > 0) {
     const idx = text.lastIndexOf('Gemini Models', searchEnd);
     if (idx === -1) break;
-    const candidate = text.slice(idx, idx + 750);
+    const candidate = text.slice(idx, idx + 1200);
     const hasClaudeGpt = /Claude and GPT models/i.test(candidate);
     const hasArgon = /Gemini 4 Argon/i.test(candidate);
     if (hasClaudeGpt && hasArgon) {
       const argonMatch = candidate.match(/Gemini 4 Argon/i);
-      const endOffset = argonMatch ? argonMatch.index + 140 : candidate.length;
+      const endOffset = argonMatch ? argonMatch.index + 280 : candidate.length;
       const block = candidate.slice(0, endOffset);
       if (!fallbackBlock) fallbackBlock = block;
-      // Native Antigravity Usage popover only uses "% left", never "% used" or markdown tables
+      // Native Antigravity Usage popover / Models & Usage modal never uses "% used" or markdown tables
       if (!/\d{1,3}%\s*used/i.test(block) && !block.includes('|')) {
         return block;
       }
@@ -516,6 +516,17 @@ function extractAntigravityPopoverBlock(text) {
   }
 
   return fallbackBlock || text;
+}
+
+function extractAntigravityResetDuration(part) {
+  if (!part) return null;
+  const m = part.match(/(?:refresh|resets?)\s+in\s+([^.\n|]+)/i);
+  if (!m) return null;
+  const cleaned = m[1]
+    .replace(/,?\s*\(?\d{1,3}\s*%\s*(?:left|remaining)?\)?.*$/i, '')
+    .replace(/,\s*$/, '')
+    .trim();
+  return cleaned ? `Resets in ${cleaned}` : null;
 }
 
 function parseTwoTierAntigravitySection(sec) {
@@ -527,26 +538,29 @@ function parseTwoTierAntigravitySection(sec) {
       fiveHourResetText: null
     };
   }
-  const leftMatches = [...sec.matchAll(/(\d{1,3})%\s*left/gi)];
-  const weeklyLeft = leftMatches[0] ? Number(leftMatches[0][1]) : null;
-  const fiveHourLeft = leftMatches[1] ? Number(leftMatches[1][1]) : null;
+
+  const pctMatches = [...sec.matchAll(/(\d{1,3})\s*%\s*(?:left)?/gi)];
+  const weeklyLeft = pctMatches[0] ? Number(pctMatches[0][1]) : null;
+  const fiveHourLeft = pctMatches[1] ? Number(pctMatches[1][1]) : null;
+
+  const fiveHourHeaderIdx = sec.search(/Five Hour Limit/i);
+  const weeklyPart = fiveHourHeaderIdx >= 0
+    ? sec.slice(0, fiveHourHeaderIdx)
+    : (pctMatches[1] ? sec.slice(0, pctMatches[1].index) : sec);
+  const fiveHourPart = fiveHourHeaderIdx >= 0
+    ? sec.slice(fiveHourHeaderIdx)
+    : (pctMatches[1] ? sec.slice(pctMatches[1].index) : '');
 
   const weeklyUsedPct = weeklyLeft !== null ? Math.min(100, Math.max(0, 100 - weeklyLeft)) : null;
   const fiveHourUsedPct = fiveHourLeft !== null ? Math.min(100, Math.max(0, 100 - fiveHourLeft)) : null;
 
-  const weeklyPart = leftMatches[1] ? sec.slice(0, leftMatches[1].index) : sec;
-  const fiveHourPart = leftMatches[1] ? sec.slice(leftMatches[1].index) : '';
+  const weeklyResetText =
+    extractAntigravityResetDuration(weeklyPart) ||
+    (weeklyUsedPct === 0 ? '100% left (Weekly limit)' : null);
 
-  const weeklyResetMatch = weeklyPart.match(/resets?\s+in\s+([^\n,|]+)/i);
-  const fiveHourResetMatch = fiveHourPart.match(/resets?\s+in\s+([^\n,|]+)/i);
-
-  const weeklyResetText = weeklyResetMatch
-    ? `Resets in ${weeklyResetMatch[1].trim()}`
-    : (weeklyUsedPct === 0 ? '100% left (Weekly limit)' : null);
-
-  const fiveHourResetText = fiveHourResetMatch
-    ? `Resets in ${fiveHourResetMatch[1].trim()}`
-    : (fiveHourUsedPct === 0 ? '100% left (5h limit)' : null);
+  const fiveHourResetText =
+    extractAntigravityResetDuration(fiveHourPart) ||
+    (fiveHourUsedPct === 0 ? '100% left (5h limit)' : null);
 
   return {
     weeklyUsedPct,
@@ -653,17 +667,16 @@ function parseUsagePageText(providerId, rawText) {
     if (cgIdx >= 0 && argonIdx > cgIdx) {
       const geminiSec = block.slice(0, cgIdx);
       const claudeGptSec = block.slice(cgIdx, argonIdx);
-      const argonSec = block.slice(argonIdx, argonIdx + 140);
+      const argonSec = block.slice(argonIdx, argonIdx + 280);
 
       const gemini = parseTwoTierAntigravitySection(geminiSec);
       const claudeGpt = parseTwoTierAntigravitySection(claudeGptSec);
 
-      const argonLeftMatch = argonSec.match(/(\d{1,3})%\s*left/i);
+      const argonLeftMatch = argonSec.match(/(\d{1,3})\s*%\s*(?:left)?/i);
       const argonWeeklyUsedPct = argonLeftMatch ? Math.min(100, Math.max(0, 100 - Number(argonLeftMatch[1]))) : null;
-      const argonResetMatch = argonSec.match(/resets?\s+in\s+([^\n,|]+)/i);
-      const argonWeeklyResetText = argonResetMatch
-        ? `Resets in ${argonResetMatch[1].trim()}`
-        : (argonWeeklyUsedPct === 0 ? '100% left (Weekly limit)' : null);
+      const argonWeeklyResetText =
+        extractAntigravityResetDuration(argonSec) ||
+        (argonWeeklyUsedPct === 0 ? '100% left (Weekly limit)' : null);
 
       return {
         ok: gemini.weeklyUsedPct !== null || claudeGpt.weeklyUsedPct !== null || argonWeeklyUsedPct !== null,
@@ -681,8 +694,10 @@ function parseUsagePageText(providerId, rawText) {
     }
 
     // Fallback for partial Antigravity snippet paste
-    const leftMatches = [...block.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
-    const resetMatches = [...block.matchAll(/resets?\s+in\s+([^\n,|]+)/gi)].map(m => `Resets in ${m[1].trim()}`);
+    const leftMatches = [...block.matchAll(/(\d{1,3})\s*%\s*(?:left)?/gi)].map(m => Number(m[1]));
+    const resetMatches = [...block.matchAll(/(?:refresh|resets?)\s+in\s+([^.\n|]+)/gi)].map(m =>
+      `Resets in ${m[1].replace(/,?\s*\(?\d{1,3}\s*%\s*(?:left|remaining)?\)?.*$/i, '').replace(/,\s*$/, '').trim()}`
+    );
     return {
       ok: leftMatches.length > 0,
       geminiWeeklyUsedPct: leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null,

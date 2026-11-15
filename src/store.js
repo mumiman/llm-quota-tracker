@@ -12,7 +12,7 @@ function getInitialState() {
       antigravity: {
         id: 'antigravity',
         name: 'Antigravity',
-        summary: 'Gemini 4%w • Claude & GPT 78%w • Argon 7%w',
+        summary: 'Gemini 4%w • Claude & GPT 78%w • Argon 70%w',
         cliCommand: 'agy config set --model gemini-4-argon',
         groups: [
           {
@@ -20,8 +20,8 @@ function getInitialState() {
             name: 'Gemini Models',
             strengths: ['agentic', 'fast', 'deep'],
             items: [
-              { id: 'g_5h', label: 'Current session (5h limit)', usedPct: 2, resetText: 'Resets in 4h 44m', windowHours: 5 },
-              { id: 'g_weekly', label: 'This week (Weekly limit)', usedPct: 4, resetText: 'Resets in 6d 18h', windowHours: 168 }
+              { id: 'g_5h', label: 'Current session (5h limit)', usedPct: 0, resetText: '100% left (5h limit)', windowHours: 5 },
+              { id: 'g_weekly', label: 'This week (Weekly limit)', usedPct: 4, resetText: 'Resets in 6 days', windowHours: 168 }
             ]
           },
           {
@@ -30,7 +30,7 @@ function getInitialState() {
             strengths: ['deep', 'agentic'],
             items: [
               { id: 'cg_5h', label: 'Current session (5h limit)', usedPct: 0, resetText: '100% left (5h limit)', windowHours: 5 },
-              { id: 'cg_weekly', label: 'This week (Weekly limit)', usedPct: 78, resetText: 'Resets in 1d 11h', windowHours: 168 }
+              { id: 'cg_weekly', label: 'This week (Weekly limit)', usedPct: 78, resetText: 'Resets in 16 hours, 58 minutes', windowHours: 168 }
             ]
           },
           {
@@ -38,7 +38,7 @@ function getInitialState() {
             name: 'Gemini 4 Argon',
             strengths: ['agentic', 'deep'],
             items: [
-              { id: 'argon_weekly', label: 'This week (Weekly limit)', usedPct: 7, resetText: 'Resets in 6d 18h', windowHours: 168 }
+              { id: 'argon_weekly', label: 'This week (Weekly limit)', usedPct: 70, resetText: 'Resets in 6 days', windowHours: 168 }
             ]
           }
         ]

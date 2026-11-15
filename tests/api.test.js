@@ -548,3 +548,70 @@ test('POST /api/accounts/session-sync updates all 5 Antigravity Usage Popover ba
   assert.equal(data.accounts.providers.antigravity.connected, true);
 });
 
+test('POST /api/accounts/parse-usage parses antigravity.google.com/remote Models & Usage page accurately', async () => {
+  const remoteModelsAndUsageText = `
+    Antigravity
+    New Conversation
+    Customizations
+    Remote Control
+    Settings
+    General
+    Appearance
+    Shortcuts
+    Models
+    Models & Usage
+    Manage your model quota and credits.
+    Plan
+    Your Plan: Google AI Pro
+    You can upgrade to a Google AI Ultra plan to receive higher rate limits.
+    Upgrade
+    Gemini Models
+    Weekly Limit Remaining
+    You have used some of your weekly limit, it will fully refresh in 6 days.
+    96%
+    Five Hour Limit Remaining
+    100%
+    Claude and GPT models
+    Weekly Limit Remaining
+    You have used some of your weekly limit, it will fully refresh in 16 hours, 58 minutes.
+    22%
+    Five Hour Limit Remaining
+    100%
+    Gemini 4 Argon
+    Gemini 4 Argon Weekly Limit
+    You have used some of your weekly limit, it will fully refresh in 6 days.
+    30%
+  `;
+
+  const res = await fetch(`${baseUrl}/api/accounts/parse-usage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      providerId: 'antigravity',
+      rawText: remoteModelsAndUsageText,
+      accountLabel: 'Antigravity Web (Models & Usage)',
+      pageUrl: 'https://antigravity.google.com/remote?settingsOpen=true&settingsScreen=General'
+    })
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  const agy = data.state.providers.antigravity;
+
+  // Gemini Models: 96% remaining -> 4% used (Weekly), 100% remaining -> 0% used (5h)
+  assert.equal(agy.groups[0].items[0].usedPct, 0);
+  assert.equal(agy.groups[0].items[0].resetText, '100% left (5h limit)');
+  assert.equal(agy.groups[0].items[1].usedPct, 4);
+  assert.equal(agy.groups[0].items[1].resetText, 'Resets in 6 days');
+
+  // Claude and GPT models: 22% remaining -> 78% used (Weekly), 100% remaining -> 0% used (5h)
+  assert.equal(agy.groups[1].items[0].usedPct, 0);
+  assert.equal(agy.groups[1].items[0].resetText, '100% left (5h limit)');
+  assert.equal(agy.groups[1].items[1].usedPct, 78);
+  assert.equal(agy.groups[1].items[1].resetText, 'Resets in 16 hours, 58 minutes');
+
+  // Gemini 4 Argon: 30% remaining -> 70% used (Weekly)
+  assert.equal(agy.groups[2].items[0].usedPct, 70);
+  assert.equal(agy.groups[2].items[0].resetText, 'Resets in 6 days');
+});
+
+
