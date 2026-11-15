@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = process.env.QUOTA_DATA_DIR || path.join(__dirname, '..', 'data');
 const STATE_FILE = path.join(DATA_DIR, 'quota-state.json');
 
 function getInitialState() {
@@ -46,12 +46,12 @@ function getInitialState() {
       claude: {
         id: 'claude',
         name: 'Claude',
-        summary: 'On track. You should reach the Nov 20 reset with room to spare.',
+        summary: "On track. You should reach Friday's reset with room to spare.",
         cliCommand: 'export ANTHROPIC_MODEL="claude-3-7-sonnet-latest"',
         strengths: ['deep', 'agentic'],
         metrics: [
-          { id: 'session', label: 'Current session', usedPct: 0, resetText: 'Starts with your first message', countdown: '5h 00m' },
-          { id: 'week', label: 'This week', usedPct: 11, resetText: 'Resets Friday 11:00 PM', countdown: '5d 21h' },
+          { id: 'session', label: 'Current session', usedPct: 13, resetText: 'Resets at 1:10 PM', countdown: '5h 00m' },
+          { id: 'week', label: 'This week', usedPct: 13, resetText: 'Resets Friday 11:00 PM', countdown: '5d 21h' },
           { id: 'fable', label: 'Fable', subtitle: 'Up to 50% of your weekly limit', usedPct: 14, resetText: 'Resets Friday 11:00 PM', countdown: '5d 21h' }
         ]
       },
@@ -62,8 +62,8 @@ function getInitialState() {
         cliCommand: 'codex --model o3-mini',
         strengths: ['fast', 'deep'],
         limits: [
-          { id: '5h', label: 'Current session (5-hour limit)', usedPct: 0, resetText: 'Resets in 5h 1m' },
-          { id: 'weekly', label: 'This week (Weekly limit)', usedPct: 55, resetText: 'Resets in 4d 16h' }
+          { id: '5h', label: 'Current session (5-hour limit)', usedPct: 9, resetText: 'Resets in 1h 35m' },
+          { id: 'weekly', label: 'This week (Weekly limit)', usedPct: 56, resetText: 'Resets in 3d 20h' }
         ],
         resetsAvailable: [
           { id: 'r1', title: 'Full reset (Weekly + 5 hr)', expires: 'Expires Dec 1, 2:22 AM GMT+7', expiresIso: '2026-12-01T02:22:00+07:00' },
@@ -88,9 +88,9 @@ function getInitialState() {
     },
     history: [
       { ts: '09:00', antigravity: 65, claude: 10, codex: 40, kimi: 5 },
-      { ts: '10:00', antigravity: 70, claude: 18, codex: 45, kimi: 10 },
-      { ts: '11:00', antigravity: 74, claude: 25, codex: 50, kimi: 18 },
-      { ts: '12:00', antigravity: 78, claude: 14, codex: 55, kimi: 24 }
+      { ts: '10:00', antigravity: 70, claude: 11, codex: 45, kimi: 10 },
+      { ts: '11:00', antigravity: 74, claude: 13, codex: 52, kimi: 12 },
+      { ts: '12:00', antigravity: 78, claude: 14, codex: 56, kimi: 24 }
     ]
   };
 }
@@ -111,12 +111,19 @@ function loadState() {
   try {
     const raw = fs.readFileSync(STATE_FILE, 'utf8');
     const parsed = JSON.parse(raw);
-    // Clean up any state that was polluted by the earlier chat-transcript regex bug ('Resets in <1m' / 13% used)
+    // 1. Clean up any state that was polluted by the earlier chat-transcript regex bug ('Resets in <1m' / 13% used)
     const g0 = parsed?.providers?.antigravity?.groups?.[0]?.items?.[0];
     if (g0 && g0.resetText === 'Resets in <1m' && g0.usedPct === 13) {
       const freshAgy = getInitialState().providers.antigravity;
       parsed.providers.antigravity = freshAgy;
       saveState(parsed);
+    }
+    // 2. Clean up any state that was overwritten by running unisolated `npm test` (Kimi 28% / Resets in 3h 10m fixture)
+    const kimi0 = parsed?.providers?.kimi?.limits?.[0];
+    if (!process.env.QUOTA_DATA_DIR && kimi0 && kimi0.usedPct === 28 && kimi0.resetText === 'Resets in 3h 10m') {
+      const fresh = getInitialState();
+      saveState(fresh);
+      return fresh;
     }
     return parsed;
   } catch {

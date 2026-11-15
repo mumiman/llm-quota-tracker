@@ -1,5 +1,6 @@
+const { execFile } = require('child_process');
 const { loadAccounts, saveAccounts } = require('./accounts');
-const { loadState, saveState } = require('./store');
+const { loadState, saveState, appendHistorySnapshot } = require('./store');
 const { scanLocalEnvironments } = require('./scanner');
 
 /**
@@ -206,7 +207,161 @@ async function syncKimiAccount(accConfig) {
 }
 
 /**
- * Syncs all configured accounts (API keys + local ~/.gemini, ~/.claude, ~/.codex, ~/.kimi logs)
+ * Applies parsed usage metrics to `state` and `accounts`.
+ */
+function applyParsedUsageToState(providerId, parsed, meta, state, acc) {
+  if (acc && acc.providers && acc.providers[providerId]) {
+    acc.providers[providerId].connected = true;
+    acc.providers[providerId].mode = 'web_auto_sync';
+    acc.providers[providerId].lastSyncAt = new Date().toISOString();
+    if (meta?.accountLabel) {
+      acc.providers[providerId].accountLabel = meta.accountLabel;
+    }
+    if (meta?.pageUrl) {
+      acc.providers[providerId].webUrl = meta.pageUrl;
+    }
+    const timeLabel = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    acc.providers[providerId].lastStatus = `Live Auto-Sync (${meta?.accountLabel || 'Browser Extension'} @ ${timeLabel})`;
+  }
+
+  if (providerId === 'claude') {
+    if (parsed.summary) state.providers.claude.summary = parsed.summary;
+    if (typeof parsed.sessionUsedPct === 'number') state.providers.claude.metrics[0].usedPct = parsed.sessionUsedPct;
+    if (parsed.sessionResetText) state.providers.claude.metrics[0].resetText = parsed.sessionResetText;
+    if (typeof parsed.weeklyUsedPct === 'number') state.providers.claude.metrics[1].usedPct = parsed.weeklyUsedPct;
+    if (parsed.weeklyResetText) state.providers.claude.metrics[1].resetText = parsed.weeklyResetText;
+    if (typeof parsed.fableUsedPct === 'number') {
+      const fableIdx = state.providers.claude.metrics.findIndex(m => m.id === 'fable');
+      const fableMetric = {
+        id: 'fable',
+        label: 'Fable',
+        subtitle: 'Up to 50% of your weekly limit',
+        usedPct: parsed.fableUsedPct,
+        resetText: parsed.weeklyResetText || 'Resets Friday 11:00 PM',
+        countdown: '5d 21h'
+      };
+      if (fableIdx >= 0) state.providers.claude.metrics[fableIdx] = fableMetric;
+      else state.providers.claude.metrics.push(fableMetric);
+    }
+  } else if (providerId === 'codex') {
+    if (typeof parsed.sessionUsedPct === 'number') state.providers.codex.limits[0].usedPct = parsed.sessionUsedPct;
+    if (parsed.sessionResetText) state.providers.codex.limits[0].resetText = parsed.sessionResetText;
+    if (typeof parsed.weeklyUsedPct === 'number') state.providers.codex.limits[1].usedPct = parsed.weeklyUsedPct;
+    if (parsed.weeklyResetText) state.providers.codex.limits[1].resetText = parsed.weeklyResetText;
+    if (Array.isArray(parsed.resetsAvailable)) state.providers.codex.resetsAvailable = parsed.resetsAvailable;
+  } else if (providerId === 'antigravity') {
+    if (typeof parsed.geminiWeeklyUsedPct === 'number') state.providers.antigravity.groups[0].items[1].usedPct = parsed.geminiWeeklyUsedPct;
+    if (parsed.geminiWeeklyResetText) state.providers.antigravity.groups[0].items[1].resetText = parsed.geminiWeeklyResetText;
+    if (typeof parsed.gemini5hUsedPct === 'number') state.providers.antigravity.groups[0].items[0].usedPct = parsed.gemini5hUsedPct;
+    if (parsed.gemini5hResetText) state.providers.antigravity.groups[0].items[0].resetText = parsed.gemini5hResetText;
+    if (typeof parsed.claudeGptWeeklyUsedPct === 'number') state.providers.antigravity.groups[1].items[1].usedPct = parsed.claudeGptWeeklyUsedPct;
+    if (parsed.claudeGptWeeklyResetText) state.providers.antigravity.groups[1].items[1].resetText = parsed.claudeGptWeeklyResetText;
+    if (typeof parsed.claudeGpt5hUsedPct === 'number') state.providers.antigravity.groups[1].items[0].usedPct = parsed.claudeGpt5hUsedPct;
+    if (parsed.claudeGpt5hResetText) state.providers.antigravity.groups[1].items[0].resetText = parsed.claudeGpt5hResetText;
+    if (typeof parsed.argonWeeklyUsedPct === 'number') state.providers.antigravity.groups[2].items[0].usedPct = parsed.argonWeeklyUsedPct;
+    if (parsed.argonWeeklyResetText) state.providers.antigravity.groups[2].items[0].resetText = parsed.argonWeeklyResetText;
+
+    const gW = state.providers.antigravity.groups[0].items[1].usedPct;
+    const cgW = state.providers.antigravity.groups[1].items[1].usedPct;
+    const argW = state.providers.antigravity.groups[2].items[0].usedPct;
+    state.providers.antigravity.summary = `Gemini ${gW}%w • Claude & GPT ${cgW}%w • Argon ${argW}%w`;
+  } else if (providerId === 'kimi' && state.providers.kimi) {
+    if (typeof parsed.sessionUsedPct === 'number') state.providers.kimi.limits[0].usedPct = parsed.sessionUsedPct;
+    if (parsed.sessionResetText) state.providers.kimi.limits[0].resetText = parsed.sessionResetText;
+    if (typeof parsed.weeklyUsedPct === 'number') state.providers.kimi.limits[1].usedPct = parsed.weeklyUsedPct;
+    if (parsed.weeklyResetText) state.providers.kimi.limits[1].resetText = parsed.weeklyResetText;
+  }
+}
+
+/**
+ * On macOS, directly inspects open tabs in Brave Browser / Google Chrome via AppleScript
+ * when the user clicks "Sync Now" so it can sync open Usage pages even if the Extension wasn't reloaded.
+ */
+async function syncOpenMacBrowserTabs(state, accounts) {
+  if (process.platform !== 'darwin') {
+    return { syncedProviders: [], foundTabs: [], appleEventsDisabled: false };
+  }
+
+  const script = `
+set outList to ""
+repeat with appName in {"Brave Browser", "Google Chrome"}
+  if application appName is running then
+    try
+      tell application appName
+        repeat with w in windows
+          repeat with t in tabs of w
+            set u to URL of t
+            if u contains "claude.ai" or u contains "chatgpt.com" or u contains "kimi.com" or u contains "kimi.ai" or u contains "idx.google.com" then
+              try
+                set bodyTxt to execute t javascript "(document.querySelector('[role=\\"dialog\\"]') ? document.querySelector('[role=\\"dialog\\"]').innerText + '\\\\n' : '') + (document.body ? document.body.innerText : '')"
+                set outList to outList & "<<<TAB_START>>>" & u & "<<<URL_END>>>" & bodyTxt & "<<<TAB_END>>>"
+              on error errMsg
+                set outList to outList & "<<<TAB_START>>>" & u & "<<<URL_END>>>APPLE_EVENTS_ERR:" & errMsg & "<<<TAB_END>>>"
+              end try
+            end if
+          end repeat
+        end repeat
+      end tell
+    end try
+  end if
+end repeat
+return outList
+`;
+
+  return new Promise((resolve) => {
+    execFile('osascript', ['-e', script], { timeout: 3500, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+      if (err || !stdout) {
+        return resolve({ syncedProviders: [], foundTabs: [], appleEventsDisabled: false });
+      }
+      const syncedProviders = [];
+      const foundTabs = [];
+      let appleEventsDisabled = false;
+
+      const blocks = String(stdout).split('<<<TAB_START>>>').slice(1);
+      for (const blk of blocks) {
+        const endIdx = blk.indexOf('<<<TAB_END>>>');
+        const content = endIdx >= 0 ? blk.slice(0, endIdx) : blk;
+        const sepIdx = content.indexOf('<<<URL_END>>>');
+        if (sepIdx === -1) continue;
+        const tabUrl = content.slice(0, sepIdx).trim();
+        const bodyText = content.slice(sepIdx + '<<<URL_END>>>'.length).trim();
+
+        let providerId = null;
+        if (tabUrl.includes('claude.ai')) providerId = 'claude';
+        else if (tabUrl.includes('chatgpt.com') || tabUrl.includes('openai.com')) providerId = 'codex';
+        else if (tabUrl.includes('kimi.com') || tabUrl.includes('kimi.ai')) providerId = 'kimi';
+        else if (tabUrl.includes('idx.google.com') || /Gemini Models/i.test(bodyText)) providerId = 'antigravity';
+
+        if (!providerId) continue;
+        if (!foundTabs.includes(providerId)) foundTabs.push(providerId);
+
+        if (bodyText.startsWith('APPLE_EVENTS_ERR:')) {
+          appleEventsDisabled = true;
+          continue;
+        }
+
+        const parsed = parseUsagePageText(providerId, bodyText);
+        if (parsed && parsed.ok) {
+          applyParsedUsageToState(
+            providerId,
+            parsed,
+            { accountLabel: 'macOS Browser Tab Sync', pageUrl: tabUrl },
+            state,
+            accounts
+          );
+          if (!syncedProviders.includes(providerId)) {
+            syncedProviders.push(providerId);
+          }
+        }
+      }
+
+      resolve({ syncedProviders, foundTabs, appleEventsDisabled });
+    });
+  });
+}
+
+/**
+ * Syncs all configured accounts (API keys + macOS open browser tabs + local ~/.gemini, ~/.claude, ~/.codex, ~/.kimi logs)
  * and updates quota-state.json when real metrics are returned.
  */
 async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
@@ -214,11 +369,12 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
   const state = loadState();
   const localScan = scanLocalEnvironments();
 
-  const [agyRes, claudeRes, codexRes, kimiRes] = await Promise.all([
+  const [agyRes, claudeRes, codexRes, kimiRes, macTabSync] = await Promise.all([
     syncAntigravityAccount(accounts.providers.antigravity),
     syncClaudeAccount(accounts.providers.claude),
     syncCodexAccount(accounts.providers.codex),
-    syncKimiAccount(accounts.providers.kimi)
+    syncKimiAccount(accounts.providers.kimi),
+    syncOpenMacBrowserTabs(state, accounts)
   ]);
 
   const nowIso = new Date().toISOString();
@@ -226,6 +382,9 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
   function updateProviderSyncMeta(provId, apiRes, scanSource) {
     const p = accounts.providers[provId];
     if (!p) return;
+    if (macTabSync.syncedProviders.includes(provId)) {
+      return; // Already updated with fresh macOS Browser Tab Sync status
+    }
     const isWebSynced = (p.mode === 'web_auto_sync' || p.mode === 'browser_oauth') && p.connected;
     if (apiRes.ok) {
       p.connected = true;
@@ -273,6 +432,9 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
     }
   }
 
+  if (macTabSync.syncedProviders.length > 0) {
+    appendHistorySnapshot(state);
+  }
   saveState(state);
 
   return {
@@ -283,6 +445,7 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
       codex: codexRes,
       kimi: kimiRes
     },
+    macTabSync,
     localScan,
     state
   };
@@ -352,6 +515,15 @@ function parseTwoTierAntigravitySection(sec) {
   };
 }
 
+function cleanResetLine(str) {
+  if (!str) return null;
+  return str
+    .replace(/\s*\d{1,3}%\s*(?:used|left).*$/i, '')
+    .replace(/\s*Use reset.*$/i, '')
+    .replace(/\s*Reset for free.*$/i, '')
+    .trim();
+}
+
 /**
  * Parses copied text or DOM innerText from Claude / Codex / Antigravity / Kimi usage pages
  * into normalized % used and reset text, isolating actual usage blocks from chat history.
@@ -360,12 +532,18 @@ function parseUsagePageText(providerId, rawText) {
   const text = String(rawText || '');
 
   if (providerId === 'claude') {
+    const yourUsageIdx = text.lastIndexOf('Your usage');
     const planIdx = text.lastIndexOf('Plan usage limits');
     const sessIdx = text.lastIndexOf('Current session');
-    const startIdx = planIdx >= 0 ? planIdx : (sessIdx >= 0 ? Math.max(0, sessIdx - 30) : 0);
-    const scope = startIdx > 0 ? text.slice(startIdx, startIdx + 1400) : text;
+    const startIdx = yourUsageIdx >= 0
+      ? yourUsageIdx
+      : (planIdx >= 0 ? planIdx : (sessIdx >= 0 ? Math.max(0, sessIdx - 80) : 0));
+    const creditsIdx = text.indexOf('Usage credits', startIdx);
+    const endIdx = creditsIdx > startIdx ? creditsIdx : startIdx + 1500;
+    const scope = startIdx > 0 ? text.slice(startIdx, endIdx) : text;
+
     const usedMatches = [...scope.matchAll(/(\d{1,3})%\s*used/gi)].map(m => Number(m[1]));
-    const summaryMatch = text.match(/(On track\.[^\n]+|Fresh week\.[^\n]+)/i);
+    const summaryMatch = scope.match(/(On track\.[^\n]+|Fresh week\.[^\n]+)/i) || text.match(/(On track\.[^\n]+|Fresh week\.[^\n]+)/i);
     const sessionResetMatch = scope.match(/(Starts with your first message|Resets (?:in|at) [^\n]+)/i);
     const weekResetMatch = scope.match(/(Resets (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n]+)/i);
 
@@ -375,8 +553,8 @@ function parseUsagePageText(providerId, rawText) {
       sessionUsedPct: usedMatches[0] ?? null,
       weeklyUsedPct: usedMatches[1] ?? null,
       fableUsedPct: usedMatches[2] ?? null,
-      sessionResetText: sessionResetMatch ? sessionResetMatch[1].trim() : null,
-      weeklyResetText: weekResetMatch ? weekResetMatch[1].trim() : null
+      sessionResetText: sessionResetMatch ? cleanResetLine(sessionResetMatch[1]) : null,
+      weeklyResetText: weekResetMatch ? cleanResetLine(weekResetMatch[1]) : null
     };
   }
 
@@ -386,12 +564,12 @@ function parseUsagePageText(providerId, rawText) {
     const weeklyIdx = scope.search(/Weekly limit/i);
 
     // Extract any Full reset (Weekly + 5 hr) tickets if present on the page
-    const ticketMatches = [...text.matchAll(/(Full reset[^\n]*)\s*\n\s*(Expires [^\n]+)/gi)];
+    const ticketMatches = [...text.matchAll(/(Full reset[^\n]*)\s*\n+\s*(Expires [^\n]+)/gi)];
     const resetsAvailable = ticketMatches.length > 0
       ? ticketMatches.map((m, idx) => ({
           id: `r${idx + 1}`,
-          title: m[1].trim(),
-          expires: m[2].trim()
+          title: cleanResetLine(m[1]),
+          expires: cleanResetLine(m[2])
         }))
       : null;
 
@@ -408,14 +586,14 @@ function parseUsagePageText(providerId, rawText) {
         ok: sessionUsedPct !== null || weeklyUsedPct !== null,
         sessionUsedPct,
         weeklyUsedPct,
-        sessionResetText: sReset ? sReset[1].trim() : (sessionUsedPct === 0 ? '100% left (5h limit)' : null),
-        weeklyResetText: wReset ? wReset[1].trim() : null,
+        sessionResetText: sReset ? cleanResetLine(sReset[1]) : (sessionUsedPct === 0 ? '100% left (5h limit)' : null),
+        weeklyResetText: wReset ? cleanResetLine(wReset[1]) : null,
         resetsAvailable
       };
     }
 
     const leftMatches = [...scope.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
-    const resetMatches = [...scope.matchAll(/(Resets in [^\n]+)/gi)].map(m => m[1].trim());
+    const resetMatches = [...scope.matchAll(/(Resets in [^\n]+)/gi)].map(m => cleanResetLine(m[1]));
     return {
       ok: leftMatches.length > 0,
       sessionUsedPct: leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null,
@@ -482,7 +660,7 @@ function parseUsagePageText(providerId, rawText) {
   if (providerId === 'kimi') {
     const usedMatches = [...text.matchAll(/(\d{1,3})%\s*used/gi)].map(m => Number(m[1]));
     const leftMatches = [...text.matchAll(/(\d{1,3})%\s*left/gi)].map(m => Number(m[1]));
-    const resetMatches = [...text.matchAll(/(Resets (?:in|at) [^\n]+)/gi)].map(m => m[1].trim());
+    const resetMatches = [...text.matchAll(/(Resets (?:in|at) [^\n]+)/gi)].map(m => cleanResetLine(m[1]));
     const sessionUsed = usedMatches[0] ?? (leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null);
     const weeklyUsed = usedMatches[1] ?? (leftMatches[1] !== undefined ? Math.max(0, 100 - leftMatches[1]) : null);
     return {
@@ -500,6 +678,7 @@ function parseUsagePageText(providerId, rawText) {
 module.exports = {
   parseRateLimitHeaders,
   parseUsagePageText,
+  applyParsedUsageToState,
   syncClaudeAccount,
   syncCodexAccount,
   syncAntigravityAccount,

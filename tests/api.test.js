@@ -1,6 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'quota-tracker-test-'));
+process.env.QUOTA_DATA_DIR = tempDataDir;
+
 const { createServer } = require('../server');
 const { parseRateLimitHeaders } = require('../src/connectors');
 
@@ -67,6 +74,11 @@ test.before(async () => {
 test.after(async () => {
   await new Promise(resolve => server.close(resolve));
   await new Promise(resolve => mockUpstream.close(resolve));
+  try {
+    fs.rmSync(tempDataDir, { recursive: true, force: true });
+  } catch {
+    // ignore cleanup error
+  }
 });
 
 test('GET /api/health returns ok', async () => {
@@ -426,4 +438,80 @@ test('POST /api/accounts/open-app returns ok and platform metadata', async () =>
   const data = await res.json();
   assert.equal(data.ok, true);
   assert.equal(data.providerId, 'antigravity');
+});
+
+test('Parses exact claude.ai/new#settings/usage modal and chatgpt.com/settings/usage?tab=overview layouts', async () => {
+  const claudeModalText = `
+    Settings
+    Account
+    Billing
+    Usage
+    Your usage Pro
+    On track. You should reach Friday's reset with room to spare.
+    Current session 13% used
+    Resets at 1:10 PM
+    This week 13% used
+    Resets Friday 11:00 PM
+    Fable 14% used
+    Up to 50% of your weekly limit
+    Resets Friday 11:00 PM
+    Limit resets 2 available
+    Full reset
+    Expires Dec 11, 5:00 AM GMT+7 Reset for free
+    Fable reset
+    Expires Nov 17, 2:59 PM GMT+7 Reset for free
+    Usage credits $19.83
+  `;
+
+  const cRes = await fetch(`${baseUrl}/api/accounts/parse-usage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'claude', rawText: claudeModalText })
+  });
+  assert.equal(cRes.status, 200);
+  const cData = await cRes.json();
+  const claude = cData.state.providers.claude;
+  assert.equal(claude.summary, "On track. You should reach Friday's reset with room to spare.");
+  assert.equal(claude.metrics[0].usedPct, 13);
+  assert.equal(claude.metrics[0].resetText, 'Resets at 1:10 PM');
+  assert.equal(claude.metrics[1].usedPct, 13);
+  assert.equal(claude.metrics[1].resetText, 'Resets Friday 11:00 PM');
+  assert.equal(claude.metrics[2].usedPct, 14);
+
+  const codexOverviewText = `
+    Usage
+    Track your usage and check your limits
+    Overview Analytics
+    Your plan
+    ChatGPT Plus $20 / month
+    Plan limits
+    Shared across Codex, Work, Workspace Agents, and ChatGPT for Excel.
+    5-hour limit
+    Resets in 1h 35m 91% left
+    Weekly limit
+    Resets in 3d 20h 44% left
+    Usage limit resets
+    Available 3 History
+    Full reset (Weekly + 5 hr)
+    Expires Dec 1, 2:22 AM GMT+7 Use reset
+    Full reset (Weekly + 5 hr)
+    Expires Dec 2, 4:04 AM GMT+7 Use reset
+    Full reset (Weekly + 5 hr)
+    Expires Dec 13, 3:51 AM GMT+7 Use reset
+  `;
+
+  const xRes = await fetch(`${baseUrl}/api/accounts/parse-usage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'codex', rawText: codexOverviewText })
+  });
+  assert.equal(xRes.status, 200);
+  const xData = await xRes.json();
+  const codex = xData.state.providers.codex;
+  assert.equal(codex.limits[0].usedPct, 9);
+  assert.equal(codex.limits[0].resetText, 'Resets in 1h 35m');
+  assert.equal(codex.limits[1].usedPct, 56);
+  assert.equal(codex.limits[1].resetText, 'Resets in 3d 20h');
+  assert.equal(codex.resetsAvailable.length, 3);
+  assert.equal(codex.resetsAvailable[0].expires, 'Expires Dec 1, 2:22 AM GMT+7');
 });

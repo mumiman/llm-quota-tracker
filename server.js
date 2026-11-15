@@ -5,7 +5,7 @@ const { loadState, saveState, resetDemoState, appendHistorySnapshot, recordUsage
 const { evaluateRoutes, generateHandoffPrompt } = require('./src/router');
 const { scanLocalEnvironments } = require('./src/scanner');
 const { getMaskedAccounts, updateAccountConfig, updateGlobalSettings, autoDetectLocalLogins, loadAccounts, saveAccounts } = require('./src/accounts');
-const { syncAllAccounts, parseUsagePageText } = require('./src/connectors');
+const { syncAllAccounts, parseUsagePageText, applyParsedUsageToState } = require('./src/connectors');
 const { handleProxyChatCompletion } = require('./src/proxy');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -175,63 +175,9 @@ function createServer() {
         }
 
         const acc = loadAccounts();
-        if (acc.providers[providerId]) {
-          acc.providers[providerId].connected = true;
-          acc.providers[providerId].mode = 'web_auto_sync';
-          acc.providers[providerId].lastSyncAt = new Date().toISOString();
-          if (body.accountLabel) {
-            acc.providers[providerId].accountLabel = body.accountLabel;
-          }
-          if (body.pageUrl) {
-            acc.providers[providerId].webUrl = body.pageUrl;
-          }
-          const timeLabel = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
-          acc.providers[providerId].lastStatus = `Live Auto-Sync (${body.accountLabel || 'Browser Extension'} @ ${timeLabel})`;
-          saveAccounts(acc);
-        }
-
         const state = loadState();
-        if (providerId === 'claude') {
-          if (parsed.summary) state.providers.claude.summary = parsed.summary;
-          if (typeof parsed.sessionUsedPct === 'number') state.providers.claude.metrics[0].usedPct = parsed.sessionUsedPct;
-          if (parsed.sessionResetText) state.providers.claude.metrics[0].resetText = parsed.sessionResetText;
-          if (typeof parsed.weeklyUsedPct === 'number') state.providers.claude.metrics[1].usedPct = parsed.weeklyUsedPct;
-          if (parsed.weeklyResetText) state.providers.claude.metrics[1].resetText = parsed.weeklyResetText;
-          if (typeof parsed.fableUsedPct === 'number') {
-            const fableIdx = state.providers.claude.metrics.findIndex(m => m.id === 'fable');
-            const fableMetric = { id: 'fable', label: 'Fable', subtitle: 'Up to 50% of your weekly limit', usedPct: parsed.fableUsedPct, resetText: parsed.weeklyResetText || 'Resets Friday 11:00 PM', countdown: '5d 21h' };
-            if (fableIdx >= 0) state.providers.claude.metrics[fableIdx] = fableMetric;
-            else state.providers.claude.metrics.push(fableMetric);
-          }
-        } else if (providerId === 'codex') {
-          if (typeof parsed.sessionUsedPct === 'number') state.providers.codex.limits[0].usedPct = parsed.sessionUsedPct;
-          if (parsed.sessionResetText) state.providers.codex.limits[0].resetText = parsed.sessionResetText;
-          if (typeof parsed.weeklyUsedPct === 'number') state.providers.codex.limits[1].usedPct = parsed.weeklyUsedPct;
-          if (parsed.weeklyResetText) state.providers.codex.limits[1].resetText = parsed.weeklyResetText;
-          if (Array.isArray(parsed.resetsAvailable)) state.providers.codex.resetsAvailable = parsed.resetsAvailable;
-        } else if (providerId === 'antigravity') {
-          if (typeof parsed.geminiWeeklyUsedPct === 'number') state.providers.antigravity.groups[0].items[1].usedPct = parsed.geminiWeeklyUsedPct;
-          if (parsed.geminiWeeklyResetText) state.providers.antigravity.groups[0].items[1].resetText = parsed.geminiWeeklyResetText;
-          if (typeof parsed.gemini5hUsedPct === 'number') state.providers.antigravity.groups[0].items[0].usedPct = parsed.gemini5hUsedPct;
-          if (parsed.gemini5hResetText) state.providers.antigravity.groups[0].items[0].resetText = parsed.gemini5hResetText;
-          if (typeof parsed.claudeGptWeeklyUsedPct === 'number') state.providers.antigravity.groups[1].items[1].usedPct = parsed.claudeGptWeeklyUsedPct;
-          if (parsed.claudeGptWeeklyResetText) state.providers.antigravity.groups[1].items[1].resetText = parsed.claudeGptWeeklyResetText;
-          if (typeof parsed.claudeGpt5hUsedPct === 'number') state.providers.antigravity.groups[1].items[0].usedPct = parsed.claudeGpt5hUsedPct;
-          if (parsed.claudeGpt5hResetText) state.providers.antigravity.groups[1].items[0].resetText = parsed.claudeGpt5hResetText;
-          if (typeof parsed.argonWeeklyUsedPct === 'number') state.providers.antigravity.groups[2].items[0].usedPct = parsed.argonWeeklyUsedPct;
-          if (parsed.argonWeeklyResetText) state.providers.antigravity.groups[2].items[0].resetText = parsed.argonWeeklyResetText;
-
-          const gW = state.providers.antigravity.groups[0].items[1].usedPct;
-          const cgW = state.providers.antigravity.groups[1].items[1].usedPct;
-          const argW = state.providers.antigravity.groups[2].items[0].usedPct;
-          state.providers.antigravity.summary = `Gemini ${gW}%w • Claude & GPT ${cgW}%w • Argon ${argW}%w`;
-        } else if (providerId === 'kimi' && state.providers.kimi) {
-          if (typeof parsed.sessionUsedPct === 'number') state.providers.kimi.limits[0].usedPct = parsed.sessionUsedPct;
-          if (parsed.sessionResetText) state.providers.kimi.limits[0].resetText = parsed.sessionResetText;
-          if (typeof parsed.weeklyUsedPct === 'number') state.providers.kimi.limits[1].usedPct = parsed.weeklyUsedPct;
-          if (parsed.weeklyResetText) state.providers.kimi.limits[1].resetText = parsed.weeklyResetText;
-        }
-
+        applyParsedUsageToState(providerId, parsed, body, state, acc);
+        saveAccounts(acc);
         appendHistorySnapshot(state);
         saveState(state);
         const routing = evaluateRoutes(state, state.taskType || 'deep');

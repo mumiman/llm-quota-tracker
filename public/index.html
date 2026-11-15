@@ -120,6 +120,9 @@
         </div>
       </div>
 
+      <!-- Live Sync Feedback Banner on Main Dashboard -->
+      <div id="mainSyncBanner" class="hidden rounded-xl border px-3.5 py-2.5 text-xs"></div>
+
       <!-- Smart Alerts Banner -->
       <div id="alertsArea" class="space-y-2"></div>
 
@@ -311,17 +314,44 @@
       setTimeout(() => fetchState(), 5500);
     }
 
+    function showMainSyncBanner(html, tone = 'emerald') {
+      const el = document.getElementById('mainSyncBanner');
+      if (!el) return;
+      el.classList.remove('hidden');
+      const clsMap = {
+        emerald: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+        amber: 'border-amber-500/50 bg-amber-500/10 text-amber-300'
+      };
+      el.className = `rounded-xl border px-3.5 py-2.5 text-xs ${clsMap[tone] || clsMap.emerald}`;
+      el.innerHTML = html;
+    }
+
     async function syncNow() {
       const btn = document.getElementById('syncBtn');
       btn.textContent = 'Syncing Tabs...';
       btn.disabled = true;
       try {
-        // 1. Trigger Browser Extension v3.1 to immediately scan all open tabs (Antigravity, Claude, Codex, Kimi)
+        // 1. Trigger Browser Extension v3.3 to immediately scan all open tabs & wait for completion ACK (or 1.2s max)
+        const extPromise = new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            window.removeEventListener('message', onMsg);
+            resolve({ timedOut: true });
+          }, 1200);
+          function onMsg(ev) {
+            if (ev.source === window && ev.data?.type === 'QUOTA_TRACKER_SYNC_DONE') {
+              clearTimeout(timer);
+              window.removeEventListener('message', onMsg);
+              resolve({ timedOut: false, syncedCount: ev.data.syncedCount || 0 });
+            }
+          }
+          window.addEventListener('message', onMsg);
+        });
+
         document.documentElement.setAttribute('data-quota-sync-request', String(Date.now()));
         window.postMessage({ type: 'QUOTA_TRACKER_SYNC_NOW' }, '*');
-        await new Promise(r => setTimeout(r, 900));
+        const extResult = await extPromise;
 
-        // 2. Sync API keys & fetch updated state
+        // 2. Sync API keys + macOS direct Browser Tab Sync + fetch updated state
         const res = await fetch('/api/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -332,7 +362,27 @@
         appRouting = data.routing;
         appAccounts = data.accounts;
         render();
-        renderSyncStatusBox(`Synced at ${new Date(data.syncedAt).toLocaleTimeString()}`);
+
+        const extVer = document.documentElement.getAttribute('data-quota-ext');
+        const macSynced = data.macTabSync?.syncedProviders || [];
+        const timeStr = new Date(data.syncedAt).toLocaleTimeString();
+
+        if (extVer || !extResult.timedOut || macSynced.length > 0) {
+          const viaLabel = macSynced.length > 0
+            ? `macOS Browser Tabs (${macSynced.join(', ')})`
+            : `Browser Extension v${extVer || '3.3'}`;
+          showMainSyncBanner(`<strong>✓ Synced at ${timeStr}</strong> via ${viaLabel}. Open usage tabs are up to date.`, 'emerald');
+          renderSyncStatusBox(`✓ Synced at ${timeStr} via ${viaLabel}`);
+        } else {
+          showMainSyncBanner(
+            `<strong>⚠ Browser Extension ยังไม่ได้ Reload เป็น v3.3:</strong> กรุณาเปิดแท็บ <code>brave://extensions</code> แล้วกดปุ่ม <strong>🔄 Reload</strong> ที่การ์ด <em>LLM Quota Tracker</em> (หรือเปิดในเมนู Brave: <code>View → Developer → Allow JavaScript from Apple Events</code> เพื่อให้ปุ่ม Sync Now ดึงจากแท็บได้โดยตรง)`,
+            'amber'
+          );
+          renderSyncStatusBox(`⚠ Please reload Extension in brave://extensions (Checked at ${timeStr})`);
+        }
+
+        // Follow-up fetch in case an async tab scan finishes right after
+        setTimeout(() => fetchState(), 1500);
       } finally {
         btn.textContent = 'Sync Now';
         btn.disabled = false;
@@ -930,6 +980,22 @@
       renderRouter();
       renderBottomTab();
     }
+
+    // Immediately update the Extension Status Badge & state when the extension loads or finishes scanning
+    const extAttrObserver = new MutationObserver(() => {
+      if (appState) renderTraySummary();
+    });
+    extAttrObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-quota-ext']
+    });
+
+    window.addEventListener('message', (ev) => {
+      if (ev.source !== window || !ev.data) return;
+      if (ev.data.type === 'QUOTA_TRACKER_EXT_READY' || ev.data.type === 'QUOTA_TRACKER_SYNC_DONE') {
+        fetchState();
+      }
+    });
 
     fetchState();
     setInterval(() => {

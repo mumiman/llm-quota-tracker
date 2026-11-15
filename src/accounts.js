@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = process.env.QUOTA_DATA_DIR || path.join(__dirname, '..', 'data');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 
 function getDefaultAccounts() {
@@ -64,7 +64,18 @@ function loadAccounts() {
     return def;
   }
   try {
-    return JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf8'));
+    if (
+      !process.env.QUOTA_DATA_DIR &&
+      (parsed?.providers?.claude?.apiKey === 'sk-ant-test-key-123456' ||
+        parsed?.providers?.codex?.apiKey === 'sk-openai-test-key-123456' ||
+        String(parsed?.providers?.claude?.baseUrl || '').includes('127.0.0.1'))
+    ) {
+      const def = getDefaultAccounts();
+      saveAccounts(def);
+      return def;
+    }
+    return parsed;
   } catch {
     const def = getDefaultAccounts();
     saveAccounts(def);
