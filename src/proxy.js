@@ -167,6 +167,9 @@ async function handleProxyChatCompletion(payload, forcedProvider = null) {
         } else if (providerId === 'codex') {
           state.providers.codex.limits[0].usedPct = parsed.usedPct;
           if (parsed.resetText) state.providers.codex.limits[0].resetText = parsed.resetText;
+        } else if (providerId === 'kimi' && state.providers.kimi) {
+          state.providers.kimi.limits[0].usedPct = parsed.usedPct;
+          if (parsed.resetText) state.providers.kimi.limits[0].resetText = parsed.resetText;
         }
         state = saveState(state);
       } else if (result.status >= 200 && result.status < 300) {
@@ -178,6 +181,7 @@ async function handleProxyChatCompletion(payload, forcedProvider = null) {
         if (providerId === 'claude') state.providers.claude.metrics[0].usedPct = 100;
         if (providerId === 'codex') state.providers.codex.limits[0].usedPct = 100;
         if (providerId === 'antigravity') state.providers.antigravity.groups[0].items[0].usedPct = 100;
+        if (providerId === 'kimi' && state.providers.kimi) state.providers.kimi.limits[0].usedPct = 100;
         state = saveState(state);
         fallbackUsed = true;
         continue;

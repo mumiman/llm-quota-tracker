@@ -360,11 +360,10 @@ function parseUsagePageText(providerId, rawText) {
   const text = String(rawText || '');
 
   if (providerId === 'claude') {
-    const lastHeaderIdx = Math.max(
-      text.lastIndexOf('Plan usage limits'),
-      text.lastIndexOf('Current session')
-    );
-    const scope = lastHeaderIdx >= 0 ? text.slice(lastHeaderIdx, lastHeaderIdx + 1200) : text;
+    const planIdx = text.lastIndexOf('Plan usage limits');
+    const sessIdx = text.lastIndexOf('Current session');
+    const startIdx = planIdx >= 0 ? planIdx : (sessIdx >= 0 ? Math.max(0, sessIdx - 30) : 0);
+    const scope = startIdx > 0 ? text.slice(startIdx, startIdx + 1400) : text;
     const usedMatches = [...scope.matchAll(/(\d{1,3})%\s*used/gi)].map(m => Number(m[1]));
     const summaryMatch = text.match(/(On track\.[^\n]+|Fresh week\.[^\n]+)/i);
     const sessionResetMatch = scope.match(/(Starts with your first message|Resets (?:in|at) [^\n]+)/i);
@@ -383,8 +382,18 @@ function parseUsagePageText(providerId, rawText) {
 
   if (providerId === 'codex') {
     const lastHeaderIdx = text.lastIndexOf('5-hour limit');
-    const scope = lastHeaderIdx >= 0 ? text.slice(Math.max(0, lastHeaderIdx - 40), lastHeaderIdx + 800) : text;
+    const scope = lastHeaderIdx >= 0 ? text.slice(Math.max(0, lastHeaderIdx - 40), lastHeaderIdx + 1200) : text;
     const weeklyIdx = scope.search(/Weekly limit/i);
+
+    // Extract any Full reset (Weekly + 5 hr) tickets if present on the page
+    const ticketMatches = [...text.matchAll(/(Full reset[^\n]*)\s*\n\s*(Expires [^\n]+)/gi)];
+    const resetsAvailable = ticketMatches.length > 0
+      ? ticketMatches.map((m, idx) => ({
+          id: `r${idx + 1}`,
+          title: m[1].trim(),
+          expires: m[2].trim()
+        }))
+      : null;
 
     if (weeklyIdx >= 0 && lastHeaderIdx >= 0) {
       const fiveHSec = scope.slice(0, weeklyIdx);
@@ -400,7 +409,8 @@ function parseUsagePageText(providerId, rawText) {
         sessionUsedPct,
         weeklyUsedPct,
         sessionResetText: sReset ? sReset[1].trim() : (sessionUsedPct === 0 ? '100% left (5h limit)' : null),
-        weeklyResetText: wReset ? wReset[1].trim() : null
+        weeklyResetText: wReset ? wReset[1].trim() : null,
+        resetsAvailable
       };
     }
 
@@ -411,7 +421,8 @@ function parseUsagePageText(providerId, rawText) {
       sessionUsedPct: leftMatches[0] !== undefined ? Math.max(0, 100 - leftMatches[0]) : null,
       weeklyUsedPct: leftMatches[1] !== undefined ? Math.max(0, 100 - leftMatches[1]) : null,
       sessionResetText: resetMatches[0] ?? null,
-      weeklyResetText: resetMatches[1] ?? null
+      weeklyResetText: resetMatches[1] ?? null,
+      resetsAvailable
     };
   }
 

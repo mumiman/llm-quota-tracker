@@ -382,3 +382,48 @@ test('Antigravity parse-usage isolates real Usage popover from noisy chat histor
   assert.equal(agy.groups[2].items[0].resetText, 'Resets in 6d 18h');
 });
 
+test('Codex parse-usage extracts 5-hour limit, Weekly limit, and Full reset tickets from usage page', async () => {
+  const codexPageText = `
+    Plan limits
+    Shared across Codex, Work, Workspace Agents, and ChatGPT for Excel.
+    5-hour limit
+    Resets in 5h 1m
+    100% left
+    Weekly limit
+    Resets in 4d 16h
+    45% left
+    Usage limit resets
+    Available 2 History
+    Full reset (Weekly + 5 hr)
+    Expires Dec 1, 2:22 AM GMT+7
+    Full reset (Weekly + 5 hr)
+    Expires Dec 2, 4:04 AM GMT+7
+  `;
+
+  const res = await fetch(`${baseUrl}/api/accounts/parse-usage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'codex', rawText: codexPageText })
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  const codex = data.state.providers.codex;
+  assert.equal(codex.limits[0].usedPct, 0);
+  assert.equal(codex.limits[0].resetText, 'Resets in 5h 1m');
+  assert.equal(codex.limits[1].usedPct, 55);
+  assert.equal(codex.limits[1].resetText, 'Resets in 4d 16h');
+  assert.equal(codex.resetsAvailable.length, 2);
+  assert.equal(codex.resetsAvailable[0].expires, 'Expires Dec 1, 2:22 AM GMT+7');
+});
+
+test('POST /api/accounts/open-app returns ok and platform metadata', async () => {
+  const res = await fetch(`${baseUrl}/api/accounts/open-app`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId: 'antigravity' })
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.providerId, 'antigravity');
+});

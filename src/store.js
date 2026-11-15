@@ -137,6 +137,29 @@ function resetDemoState() {
   return saveState(init);
 }
 
+function appendHistorySnapshot(state) {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const agyPeak = Math.max(
+    ...state.providers.antigravity.groups.flatMap(g => g.items.map(i => i.usedPct))
+  );
+  const claudePeak = Math.max(...state.providers.claude.metrics.map(m => m.usedPct));
+  const codexPeak = Math.max(...state.providers.codex.limits.map(l => l.usedPct));
+  const kimiPeak = state.providers.kimi ? Math.max(...state.providers.kimi.limits.map(l => l.usedPct)) : 0;
+
+  if (!Array.isArray(state.history)) state.history = [];
+  state.history.push({
+    ts: `${hh}:${mm}`,
+    antigravity: agyPeak,
+    claude: claudePeak,
+    codex: codexPeak,
+    kimi: kimiPeak
+  });
+  if (state.history.length > 16) state.history.shift();
+  return state;
+}
+
 function recordUsage(state, { providerId, groupId, amount = 10 }) {
   if (providerId === 'antigravity') {
     const grp = state.providers.antigravity.groups.find(g => g.id === groupId) || state.providers.antigravity.groups[0];
@@ -159,25 +182,7 @@ function recordUsage(state, { providerId, groupId, amount = 10 }) {
     state.providers.kimi.limits[1].usedPct = Math.min(100, state.providers.kimi.limits[1].usedPct + Math.max(1, Math.round(amount * 0.4)));
   }
 
-  const now = new Date();
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  const agyPeak = Math.max(
-    ...state.providers.antigravity.groups.flatMap(g => g.items.map(i => i.usedPct))
-  );
-  const claudePeak = Math.max(...state.providers.claude.metrics.map(m => m.usedPct));
-  const codexPeak = Math.max(...state.providers.codex.limits.map(l => l.usedPct));
-  const kimiPeak = state.providers.kimi ? Math.max(...state.providers.kimi.limits.map(l => l.usedPct)) : 0;
-
-  state.history.push({
-    ts: `${hh}:${mm}`,
-    antigravity: agyPeak,
-    claude: claudePeak,
-    codex: codexPeak,
-    kimi: kimiPeak
-  });
-  if (state.history.length > 16) state.history.shift();
-
+  appendHistorySnapshot(state);
   return saveState(state);
 }
 
@@ -244,6 +249,7 @@ module.exports = {
   loadState,
   saveState,
   resetDemoState,
+  appendHistorySnapshot,
   recordUsage,
   applyReset
 };

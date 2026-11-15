@@ -1,7 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { loadState, saveState, resetDemoState, recordUsage, applyReset } = require('./src/store');
+const { loadState, saveState, resetDemoState, appendHistorySnapshot, recordUsage, applyReset } = require('./src/store');
 const { evaluateRoutes, generateHandoffPrompt } = require('./src/router');
 const { scanLocalEnvironments } = require('./src/scanner');
 const { getMaskedAccounts, updateAccountConfig, updateGlobalSettings, autoDetectLocalLogins, loadAccounts, saveAccounts } = require('./src/accounts');
@@ -143,6 +143,7 @@ function createServer() {
           if (weeklyResetText) state.providers.kimi.limits[1].resetText = weeklyResetText;
         }
 
+        appendHistorySnapshot(state);
         saveState(state);
         const routing = evaluateRoutes(state, state.taskType || 'deep');
         return sendJson(res, 200, { ok: true, state, routing, accounts: getMaskedAccounts() });
@@ -207,6 +208,7 @@ function createServer() {
           if (parsed.sessionResetText) state.providers.codex.limits[0].resetText = parsed.sessionResetText;
           if (typeof parsed.weeklyUsedPct === 'number') state.providers.codex.limits[1].usedPct = parsed.weeklyUsedPct;
           if (parsed.weeklyResetText) state.providers.codex.limits[1].resetText = parsed.weeklyResetText;
+          if (Array.isArray(parsed.resetsAvailable)) state.providers.codex.resetsAvailable = parsed.resetsAvailable;
         } else if (providerId === 'antigravity') {
           if (typeof parsed.geminiWeeklyUsedPct === 'number') state.providers.antigravity.groups[0].items[1].usedPct = parsed.geminiWeeklyUsedPct;
           if (parsed.geminiWeeklyResetText) state.providers.antigravity.groups[0].items[1].resetText = parsed.geminiWeeklyResetText;
@@ -230,6 +232,7 @@ function createServer() {
           if (parsed.weeklyResetText) state.providers.kimi.limits[1].resetText = parsed.weeklyResetText;
         }
 
+        appendHistorySnapshot(state);
         saveState(state);
         const routing = evaluateRoutes(state, state.taskType || 'deep');
         return sendJson(res, 200, { ok: true, parsed, state, routing, accounts: getMaskedAccounts() });
