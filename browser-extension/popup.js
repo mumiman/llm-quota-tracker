@@ -29,7 +29,7 @@ document.getElementById('openClaudeBtn').addEventListener('click', () => {
 });
 
 document.getElementById('openCodexBtn').addEventListener('click', () => {
-  chrome.tabs.create({ url: 'https://chatgpt.com/codex/settings/usage' });
+  chrome.tabs.create({ url: 'https://chatgpt.com/settings/usage?tab=overview' });
 });
 
 document.getElementById('openKimiBtn').addEventListener('click', () => {
