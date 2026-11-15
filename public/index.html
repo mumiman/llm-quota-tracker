@@ -183,6 +183,127 @@
     </div>
   </div>
 
+  <!-- Antigravity Usage Popover & Sync Modal (Replaces dead idx.google.com link) -->
+  <div id="antigravityUsageModal" class="hidden fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+    <div class="card rounded-2xl max-w-xl w-full p-5 space-y-4 max-h-[92vh] overflow-y-auto border border-blue-500/40">
+      <div class="flex items-center justify-between border-b border-theme pb-3">
+        <div>
+          <h2 class="text-base font-bold flex items-center gap-2">
+            <span>🔵 Antigravity — Usage Popover & Real-Time Sync</span>
+          </h2>
+          <p class="text-xs text-muted mt-0.5">
+            Antigravity ไม่มีหน้าเว็บ Usage แยกต่างหาก (หน้า <code>idx.google.com</code> เดิมคือ Firebase Studio ที่ปิดตัวแล้ว) — โควตาจะอยู่ในปุ่ม <strong>Usage</strong> ในหน้าต่างแชท Antigravity
+          </p>
+        </div>
+        <button onclick="closeAntigravityUsageModal()" class="px-2.5 py-1 rounded border border-theme text-xs hover:opacity-80">Close</button>
+      </div>
+
+      <!-- Auto-Sync / Clipboard Bar -->
+      <div class="p-3 rounded-xl border border-blue-500/40 bg-blue-500/10 space-y-2 text-xs">
+        <div class="font-semibold text-blue-400">⚡ วิธี Sync โควตา Antigravity (เลือกวิธีที่สะดวกที่สุด):</div>
+        <ol class="list-decimal list-inside space-y-1 text-muted">
+          <li><strong>ถ้าเปิด Antigravity ใน Browser:</strong> กดปุ่ม <code>Usage</code> ในหน้าแชท Antigravity เพื่อให้ป๊อปอัปโควตาแสดงขึ้นมา แล้วกดปุ่ม <strong>Scan Open Tab</strong> ด้านล่าง</li>
+          <li><strong>ถ้าใช้แอป Antigravity Desktop:</strong> ก๊อปปี้ข้อความในป๊อปอัป <code>Usage</code> แล้วกด <strong>Paste & Sync</strong> หรือปรับค่า <strong>% left</strong> ด้านล่างให้ตรงกับป๊อปอัป Usage จริงได้เลย</li>
+        </ol>
+        <div class="flex flex-wrap items-center gap-2 pt-1">
+          <button onclick="scanAntigravityNow()" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition">
+            🔍 Scan Open Antigravity Tab & Clipboard
+          </button>
+          <button onclick="pasteAntigravityFromClipboard()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition">
+            📋 Paste & Sync from Clipboard
+          </button>
+        </div>
+        <div id="agyModalStatus" class="hidden pt-1 font-medium text-emerald-400"></div>
+      </div>
+
+      <!-- Native Antigravity Usage Popover Mirror (% left inputs matching Antigravity UI) -->
+      <div class="p-3.5 rounded-xl border border-theme bg-black/25 space-y-3 text-xs">
+        <div class="flex items-center justify-between border-b border-theme pb-2">
+          <span class="font-semibold text-sm">Usage Popover Mirror (กรอก <code>% left</code> ตามที่เห็นในป๊อปอัป Usage ของ Antigravity)</span>
+          <span class="text-muted font-mono">Auto-converts % left → % used</span>
+        </div>
+
+        <!-- Group 1: Gemini Models -->
+        <div class="space-y-2">
+          <div class="font-semibold text-blue-400">1. Gemini Models</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div class="p-2.5 rounded-lg border border-theme bg-black/20 space-y-1">
+              <div class="flex justify-between">
+                <span class="font-medium">Weekly limit (% left)</span>
+                <span id="agy_lbl_gw" class="font-mono text-emerald-400">17% left (83% used)</span>
+              </div>
+              <input id="agy_gw_left" type="number" min="0" max="100" oninput="updateAgyMirrorPreview()" class="w-full card rounded px-2 py-1 font-mono text-sm" />
+              <input id="agy_gw_reset" type="text" placeholder="Resets in 6d 20h" class="w-full card rounded px-2 py-1 text-muted" />
+            </div>
+            <div class="p-2.5 rounded-lg border border-theme bg-black/20 space-y-1">
+              <div class="flex justify-between">
+                <span class="font-medium">5-hour limit (% left)</span>
+                <span id="agy_lbl_g5" class="font-mono text-emerald-400">100% left (0% used)</span>
+              </div>
+              <input id="agy_g5_left" type="number" min="0" max="100" oninput="updateAgyMirrorPreview()" class="w-full card rounded px-2 py-1 font-mono text-sm" />
+              <input id="agy_g5_reset" type="text" placeholder="100% left (5h limit)" class="w-full card rounded px-2 py-1 text-muted" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Group 2: Claude and GPT models -->
+        <div class="space-y-2 pt-2 border-t border-theme">
+          <div class="font-semibold text-amber-400">2. Claude and GPT models</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div class="p-2.5 rounded-lg border border-theme bg-black/20 space-y-1">
+              <div class="flex justify-between">
+                <span class="font-medium">Weekly limit (% left)</span>
+                <span id="agy_lbl_cw" class="font-mono text-emerald-400">0% left (100% used)</span>
+              </div>
+              <input id="agy_cw_left" type="number" min="0" max="100" oninput="updateAgyMirrorPreview()" class="w-full card rounded px-2 py-1 font-mono text-sm" />
+              <input id="agy_cw_reset" type="text" placeholder="Resets in 4d 23h" class="w-full card rounded px-2 py-1 text-muted" />
+            </div>
+            <div class="p-2.5 rounded-lg border border-theme bg-black/20 space-y-1">
+              <div class="flex justify-between">
+                <span class="font-medium">5-hour limit (% left)</span>
+                <span id="agy_lbl_c5" class="font-mono text-emerald-400">91% left (9% used)</span>
+              </div>
+              <input id="agy_c5_left" type="number" min="0" max="100" oninput="updateAgyMirrorPreview()" class="w-full card rounded px-2 py-1 font-mono text-sm" />
+              <input id="agy_c5_reset" type="text" placeholder="Resets in 4h 37m" class="w-full card rounded px-2 py-1 text-muted" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Group 3: Gemini 4 Argon -->
+        <div class="space-y-2 pt-2 border-t border-theme">
+          <div class="font-semibold text-purple-400">3. Gemini 4 Argon</div>
+          <div class="p-2.5 rounded-lg border border-theme bg-black/20 space-y-1">
+            <div class="flex justify-between">
+              <span class="font-medium">Weekly limit (% left)</span>
+              <span id="agy_lbl_aw" class="font-mono text-emerald-400">100% left (0% used)</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input id="agy_aw_left" type="number" min="0" max="100" oninput="updateAgyMirrorPreview()" class="w-full card rounded px-2 py-1 font-mono text-sm" />
+              <input id="agy_aw_reset" type="text" placeholder="100% left (Weekly limit)" class="w-full card rounded px-2 py-1 text-muted" />
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-theme">
+          <button onclick="saveAntigravityMirror()" class="w-full sm:w-auto px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition">
+            ✓ Save & Sync Antigravity Usage
+          </button>
+        </div>
+      </div>
+
+      <!-- Optional Raw Text Paste Area -->
+      <details class="text-xs border-t border-theme pt-2">
+        <summary class="cursor-pointer text-muted hover:text-white select-none">หรือวางข้อความที่ก๊อปปี้มาจากป๊อปอัป Usage ของ Antigravity โดยตรง</summary>
+        <div class="mt-2 flex gap-2 items-start">
+          <textarea id="agy_modal_paste" rows="3" placeholder="วางข้อความจากป๊อปอัป Usage ของ Antigravity (Gemini Models ... Claude and GPT models ... Gemini 4 Argon)" class="flex-1 card rounded-lg px-2.5 py-1.5 text-xs"></textarea>
+          <button onclick="parseAntigravityModalText()" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium shrink-0 transition">
+            Sync Text
+          </button>
+        </div>
+      </details>
+    </div>
+  </div>
+
   <script>
     let appState = null;
     let appRouting = null;
@@ -239,7 +360,7 @@
       if (!box || !appAccounts) return;
       box.classList.remove('hidden');
       const rows = [
-        { id: 'antigravity', name: 'Antigravity', btn: 'Open Antigravity Usage ↗', cls: 'bg-blue-600 hover:bg-blue-500' },
+        { id: 'antigravity', name: 'Antigravity', btn: 'Open Antigravity Usage Popover ↗', cls: 'bg-blue-600 hover:bg-blue-500' },
         { id: 'claude', name: 'Claude', btn: 'Open Claude Usage ↗', cls: 'bg-amber-600 hover:bg-amber-500' },
         { id: 'codex', name: 'Codex', btn: 'Open Codex Usage ↗', cls: 'bg-emerald-600 hover:bg-emerald-500' },
         { id: 'kimi', name: 'Kimi', btn: 'Open Kimi.ai ↗', cls: 'bg-purple-600 hover:bg-purple-500' }
@@ -268,25 +389,163 @@
       `;
     }
 
+    function openAntigravityUsageModal() {
+      if (!appState?.providers?.antigravity) return;
+      const agy = appState.providers.antigravity;
+      const g5Used = agy.groups[0]?.items[0]?.usedPct ?? 0;
+      const gwUsed = agy.groups[0]?.items[1]?.usedPct ?? 0;
+      const c5Used = agy.groups[1]?.items[0]?.usedPct ?? 0;
+      const cwUsed = agy.groups[1]?.items[1]?.usedPct ?? 0;
+      const awUsed = agy.groups[2]?.items[0]?.usedPct ?? 0;
+
+      document.getElementById('agy_gw_left').value = Math.max(0, 100 - gwUsed);
+      document.getElementById('agy_gw_reset').value = agy.groups[0]?.items[1]?.resetText || 'Resets in 6d 20h';
+      document.getElementById('agy_g5_left').value = Math.max(0, 100 - g5Used);
+      document.getElementById('agy_g5_reset').value = agy.groups[0]?.items[0]?.resetText || '100% left (5h limit)';
+
+      document.getElementById('agy_cw_left').value = Math.max(0, 100 - cwUsed);
+      document.getElementById('agy_cw_reset').value = agy.groups[1]?.items[1]?.resetText || 'Resets in 4d 23h';
+      document.getElementById('agy_c5_left').value = Math.max(0, 100 - c5Used);
+      document.getElementById('agy_c5_reset').value = agy.groups[1]?.items[0]?.resetText || 'Resets in 4h 37m';
+
+      document.getElementById('agy_aw_left').value = Math.max(0, 100 - awUsed);
+      document.getElementById('agy_aw_reset').value = agy.groups[2]?.items[0]?.resetText || '100% left (Weekly limit)';
+
+      updateAgyMirrorPreview();
+      document.getElementById('antigravityUsageModal').classList.remove('hidden');
+    }
+
+    function closeAntigravityUsageModal() {
+      document.getElementById('antigravityUsageModal').classList.add('hidden');
+    }
+
+    function updateAgyMirrorPreview() {
+      const pairs = [
+        ['agy_gw_left', 'agy_lbl_gw'],
+        ['agy_g5_left', 'agy_lbl_g5'],
+        ['agy_cw_left', 'agy_lbl_cw'],
+        ['agy_c5_left', 'agy_lbl_c5'],
+        ['agy_aw_left', 'agy_lbl_aw']
+      ];
+      for (const [inId, lblId] of pairs) {
+        const left = Math.min(100, Math.max(0, Number(document.getElementById(inId)?.value || 0)));
+        const used = 100 - left;
+        const el = document.getElementById(lblId);
+        if (el) el.textContent = `${left}% left (${used}% used)`;
+      }
+    }
+
+    async function saveAntigravityMirror() {
+      const gwLeft = Math.min(100, Math.max(0, Number(document.getElementById('agy_gw_left').value || 0)));
+      const g5Left = Math.min(100, Math.max(0, Number(document.getElementById('agy_g5_left').value || 0)));
+      const cwLeft = Math.min(100, Math.max(0, Number(document.getElementById('agy_cw_left').value || 0)));
+      const c5Left = Math.min(100, Math.max(0, Number(document.getElementById('agy_c5_left').value || 0)));
+      const awLeft = Math.min(100, Math.max(0, Number(document.getElementById('agy_aw_left').value || 0)));
+
+      const antigravityMetrics = {
+        geminiWeeklyUsedPct: 100 - gwLeft,
+        gemini5hUsedPct: 100 - g5Left,
+        claudeGptWeeklyUsedPct: 100 - cwLeft,
+        claudeGpt5hUsedPct: 100 - c5Left,
+        argonWeeklyUsedPct: 100 - awLeft,
+        geminiWeeklyResetText: document.getElementById('agy_gw_reset').value.trim() || 'Resets in 6d 20h',
+        gemini5hResetText: document.getElementById('agy_g5_reset').value.trim() || '100% left (5h limit)',
+        claudeGptWeeklyResetText: document.getElementById('agy_cw_reset').value.trim() || 'Resets in 4d 23h',
+        claudeGpt5hResetText: document.getElementById('agy_c5_reset').value.trim() || 'Resets in 4h 37m',
+        argonWeeklyResetText: document.getElementById('agy_aw_reset').value.trim() || '100% left (Weekly limit)'
+      };
+
+      const res = await fetch('/api/accounts/session-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerId: 'antigravity',
+          accountLabel: 'Antigravity Usage Popover',
+          antigravityMetrics
+        })
+      });
+      const data = await res.json();
+      appState = data.state;
+      appRouting = data.routing;
+      appAccounts = data.accounts;
+      render();
+      showMainSyncBanner('<strong>✓ Synced Antigravity Usage!</strong> อัปเดตโควตา Antigravity ทั้ง 3 กลุ่มเรียบร้อยแล้ว', 'emerald');
+      closeAntigravityUsageModal();
+    }
+
+    async function scanAntigravityNow() {
+      const statusEl = document.getElementById('agyModalStatus');
+      if (statusEl) {
+        statusEl.classList.remove('hidden');
+        statusEl.textContent = 'กำลังสแกนหาแท็บ Antigravity และ Clipboard...';
+      }
+      document.documentElement.setAttribute('data-quota-open-provider', 'antigravity');
+      document.documentElement.setAttribute('data-quota-sync-request', String(Date.now()));
+      window.postMessage({ type: 'QUOTA_TRACKER_OPEN_PROVIDER', providerId: 'antigravity' }, '*');
+      window.postMessage({ type: 'QUOTA_TRACKER_SYNC_NOW' }, '*');
+      await syncNow();
+      openAntigravityUsageModal();
+      if (statusEl) {
+        statusEl.textContent = '✓ สแกนเสร็จสิ้น! (หากใช้แอป Antigravity Desktop คุณสามารถปรับ % left ด้านล่างแล้วกด Save & Sync ได้เลย)';
+      }
+    }
+
+    async function pasteAntigravityFromClipboard() {
+      try {
+        const clipText = await navigator.clipboard.readText();
+        if (clipText && clipText.trim()) {
+          document.getElementById('agy_modal_paste').value = clipText;
+          await parseAntigravityModalText();
+          return;
+        }
+      } catch {
+        // Fallback if browser clipboard permission prompt is blocked: server-side pbpaste on macOS handles it via syncNow()
+      }
+      await syncNow();
+      openAntigravityUsageModal();
+    }
+
+    async function parseAntigravityModalText() {
+      const rawText = document.getElementById('agy_modal_paste')?.value || '';
+      if (!rawText.trim()) return alert('กรุณาวางข้อความที่ก๊อปปี้มาจากป๊อปอัป Usage ของ Antigravity ก่อนครับ');
+      const res = await fetch('/api/accounts/parse-usage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerId: 'antigravity', rawText, accountLabel: 'Antigravity Usage Popover' })
+      });
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+      appState = data.state;
+      appRouting = data.routing;
+      appAccounts = data.accounts;
+      render();
+      showMainSyncBanner('<strong>✓ Synced Antigravity Usage from pasted text!</strong>', 'emerald');
+      closeAntigravityUsageModal();
+    }
+
     async function openAndSyncProvider(providerId) {
+      const savedAgyUrl = appAccounts?.providers?.antigravity?.webUrl || '';
+      const validAgyUrl = savedAgyUrl && !savedAgyUrl.includes('idx.google.com') ? savedAgyUrl : null;
       const urls = {
-        antigravity: appAccounts?.providers?.antigravity?.webUrl || 'https://idx.google.com/',
+        antigravity: validAgyUrl,
         claude: 'https://claude.ai/settings/usage',
         codex: 'https://chatgpt.com/codex/settings/usage',
         kimi: 'https://www.kimi.com/'
       };
 
-      // 1. Signal Browser Extension (both v3.0 SYNC_NOW and v3.2 OPEN_PROVIDER)
+      // 1. Signal Browser Extension (v3.4 OPEN_PROVIDER and SYNC_NOW)
       document.documentElement.setAttribute('data-quota-open-provider', providerId);
       document.documentElement.setAttribute('data-quota-sync-request', String(Date.now()));
       window.postMessage({ type: 'QUOTA_TRACKER_OPEN_PROVIDER', providerId }, '*');
       window.postMessage({ type: 'QUOTA_TRACKER_SYNC_NOW' }, '*');
 
-      // 2. Open target web tab(s) synchronously on click so browser popup blocker never blocks them
+      // 2. Open target web tab(s) synchronously on click (never open dead idx.google.com!)
       if (providerId === 'all') {
         window.open(urls.claude, '_blank', 'noopener');
         window.open(urls.codex, '_blank', 'noopener');
         window.open(urls.kimi, '_blank', 'noopener');
+      } else if (providerId === 'antigravity') {
+        openAntigravityUsageModal();
       } else if (urls[providerId]) {
         window.open(urls[providerId], '_blank', 'noopener');
       }
@@ -298,12 +557,6 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ providerId: 'antigravity' })
         }).catch(() => {});
-
-        const pasteEl = document.getElementById('paste_antigravity');
-        if (pasteEl) {
-          pasteEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          pasteEl.focus();
-        }
       }
 
       renderSyncStatusBox(`Opening ${providerId === 'all' ? 'All Providers' : providerId} & waiting for Auto-Sync...`);
@@ -331,7 +584,7 @@
       btn.textContent = 'Syncing Tabs...';
       btn.disabled = true;
       try {
-        // 1. Trigger Browser Extension v3.3 to immediately scan all open tabs & wait for completion ACK (or 1.2s max)
+        // 1. Trigger Browser Extension v3.4 to immediately scan all open tabs (and iframes) & wait for completion ACK
         const extPromise = new Promise((resolve) => {
           const timer = setTimeout(() => {
             window.removeEventListener('message', onMsg);
@@ -351,7 +604,7 @@
         window.postMessage({ type: 'QUOTA_TRACKER_SYNC_NOW' }, '*');
         const extResult = await extPromise;
 
-        // 2. Sync API keys + macOS direct Browser Tab Sync + fetch updated state
+        // 2. Sync API keys + macOS direct Browser Tab & Clipboard Sync + fetch updated state
         const res = await fetch('/api/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -369,13 +622,13 @@
 
         if (extVer || !extResult.timedOut || macSynced.length > 0) {
           const viaLabel = macSynced.length > 0
-            ? `macOS Browser Tabs (${macSynced.join(', ')})`
-            : `Browser Extension v${extVer || '3.3'}`;
+            ? `macOS Browser Tabs / Clipboard (${macSynced.join(', ')})`
+            : `Browser Extension v${extVer || '3.4'}`;
           showMainSyncBanner(`<strong>✓ Synced at ${timeStr}</strong> via ${viaLabel}. Open usage tabs are up to date.`, 'emerald');
           renderSyncStatusBox(`✓ Synced at ${timeStr} via ${viaLabel}`);
         } else {
           showMainSyncBanner(
-            `<strong>⚠ Browser Extension ยังไม่ได้ Reload เป็น v3.3:</strong> กรุณาเปิดแท็บ <code>brave://extensions</code> แล้วกดปุ่ม <strong>🔄 Reload</strong> ที่การ์ด <em>LLM Quota Tracker</em> (หรือเปิดในเมนู Brave: <code>View → Developer → Allow JavaScript from Apple Events</code> เพื่อให้ปุ่ม Sync Now ดึงจากแท็บได้โดยตรง)`,
+            `<strong>⚠ Browser Extension ยังไม่ได้ Reload เป็น v3.4:</strong> กรุณาเปิดแท็บ <code>brave://extensions</code> แล้วกดปุ่ม <strong>🔄 Reload</strong> ที่การ์ด <em>LLM Quota Tracker</em>`,
             'amber'
           );
           renderSyncStatusBox(`⚠ Please reload Extension in brave://extensions (Checked at ${timeStr})`);

@@ -75,6 +75,10 @@ function loadAccounts() {
       saveAccounts(def);
       return def;
     }
+    if (parsed?.providers?.antigravity?.webUrl && String(parsed.providers.antigravity.webUrl).includes('idx.google.com')) {
+      delete parsed.providers.antigravity.webUrl;
+      saveAccounts(parsed);
+    }
     return parsed;
   } catch {
     const def = getDefaultAccounts();

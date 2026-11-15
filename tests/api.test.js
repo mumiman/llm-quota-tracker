@@ -515,3 +515,36 @@ test('Parses exact claude.ai/new#settings/usage modal and chatgpt.com/settings/u
   assert.equal(codex.resetsAvailable.length, 3);
   assert.equal(codex.resetsAvailable[0].expires, 'Expires Dec 1, 2:22 AM GMT+7');
 });
+
+test('POST /api/accounts/session-sync updates all 5 Antigravity Usage Popover bars via antigravityMetrics', async () => {
+  const res = await fetch(`${baseUrl}/api/accounts/session-sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      providerId: 'antigravity',
+      accountLabel: 'Antigravity Usage Popover',
+      antigravityMetrics: {
+        geminiWeeklyUsedPct: 83,
+        gemini5hUsedPct: 0,
+        claudeGptWeeklyUsedPct: 100,
+        claudeGpt5hUsedPct: 9,
+        argonWeeklyUsedPct: 0,
+        geminiWeeklyResetText: 'Resets in 6d 20h',
+        gemini5hResetText: '100% left (5h limit)',
+        claudeGptWeeklyResetText: 'Resets in 4d 23h',
+        claudeGpt5hResetText: 'Resets in 4h 37m',
+        argonWeeklyResetText: '100% left (Weekly limit)'
+      }
+    })
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  const agy = data.state.providers.antigravity;
+  assert.equal(agy.groups[0].items[0].usedPct, 0);
+  assert.equal(agy.groups[0].items[1].usedPct, 83);
+  assert.equal(agy.groups[1].items[0].usedPct, 9);
+  assert.equal(agy.groups[1].items[1].usedPct, 100);
+  assert.equal(agy.groups[2].items[0].usedPct, 0);
+  assert.equal(data.accounts.providers.antigravity.connected, true);
+});
+

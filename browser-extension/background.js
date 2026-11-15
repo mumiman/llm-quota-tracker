@@ -1,14 +1,13 @@
 /**
- * Background Service Worker for LLM Quota Tracker Real-Time Auto-Sync (v3.3)
+ * Background Service Worker for LLM Quota Tracker Real-Time Auto-Sync (v3.4)
  *
- * Root-Cause Fixes in v3.3:
- * 1. Automatically re-injects `content-script.js` into all already-open tabs whenever the extension
- *    is loaded or reloaded in `brave://extensions`, so `localhost:3456` and open provider tabs work
- *    immediately without refreshing the page or losing MV3 Service Worker wake-up events.
- * 2. Supports Claude's modal hash URL (`https://claude.ai/new#settings/usage` and `[role="dialog"]`)
+ * Root-Cause Fixes in v3.4:
+ * 1. Scans `allFrames: true` in `scanAllOpenTabs` and `reinjectContentScriptsIntoOpenTabs` so Antigravity
+ *    Web workspaces rendered inside iframes or shadow DOMs are always scanned and synced.
+ * 2. Automatically clicks the `Usage` button inside open Antigravity tabs when `Sync Now` or
+ *    `Open Antigravity Usage` is triggered, and ignores the deprecated `idx.google.com` landing page.
+ * 3. Supports Claude's modal hash URL (`https://claude.ai/new#settings/usage` and `[role="dialog"]`)
  *    and ChatGPT's redirected overview URL (`https://chatgpt.com/settings/usage?tab=overview`).
- * 3. Removes blocking network `fetch()` calls from inside `executeScript` and scans all tabs in
- *    parallel (`Promise.all`), reducing `Sync Now` latency from ~4,000ms to < 50ms.
  */
 
 const TRACKER_BASE = 'http://localhost:3456';
@@ -27,7 +26,7 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
 
     // 1. If this tab is the LLM Quota Tracker Dashboard (localhost:3456)
     if ((host === 'localhost' || host === '127.0.0.1') && port === '3456') {
-      document.documentElement.setAttribute('data-quota-ext', '3.3.0');
+      document.documentElement.setAttribute('data-quota-ext', '3.4.0');
       const syncReq = document.documentElement.getAttribute('data-quota-sync-request');
       const openReq = document.documentElement.getAttribute('data-quota-open-provider');
       if (syncReq) document.documentElement.removeAttribute('data-quota-sync-request');
@@ -202,7 +201,8 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
         const tag = (el.tagName || '').toUpperCase();
         if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'PRE' || tag === 'CODE') continue;
         const txt = (el.innerText || el.textContent || '').trim();
-        if (/^Usage$/i.test(txt) && el.children.length <= 4) {
+        const aria = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || '';
+        if ((/^Usage$/i.test(txt) || /^Usage$/i.test(aria.trim())) && el.children.length <= 4) {
           return el;
         }
       }
@@ -226,21 +226,29 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
     }
 
     let bestPopoverText = findAntigravityPopoverText();
-    const titleOrUrlIsAgy = /antigravity|jetski|idx\.google|workstations/i.test(
-      `${document.title} ${window.location.href}`
-    );
     const bodyTextSample = (document.body?.innerText || '').slice(0, 4000);
-    const domLooksLikeAgy = Boolean(
-      bestPopoverText ||
-      titleOrUrlIsAgy ||
-      (bodyTextSample.includes('Antigravity') && bodyTextSample.includes('Gemini'))
-    );
+    const isDeprecatedIdxLanding =
+      host === 'idx.google.com' &&
+      (bodyTextSample.includes('Firebase Studio is evolving') || bodyTextSample.includes('Download Antigravity'));
+
+    const titleOrUrlIsAgy =
+      !isDeprecatedIdxLanding &&
+      /antigravity|jetski|workstations/i.test(`${document.title} ${window.location.href}`);
+
+    const domLooksLikeAgy =
+      !isDeprecatedIdxLanding &&
+      Boolean(
+        bestPopoverText ||
+          titleOrUrlIsAgy ||
+          Boolean(findAntigravityUsageButton()) ||
+          (bodyTextSample.includes('Antigravity') && bodyTextSample.includes('Gemini'))
+      );
 
     if (!bestPopoverText && domLooksLikeAgy && tryOpenAntigravityPopover) {
       const usageBtn = findAntigravityUsageButton();
       if (usageBtn) {
         triggerFullClick(usageBtn);
-        await new Promise(r => setTimeout(r, 350));
+        await new Promise((r) => setTimeout(r, 380));
         bestPopoverText = findAntigravityPopoverText();
       }
     }
@@ -334,8 +342,8 @@ async function pushUsageToLocalServer({ providerId, rawText, internalApi, pageUr
 }
 
 /**
- * Re-injects content-script.js into all already-open http/https tabs when the extension loads/reloads
- * so already-open tabs (including localhost:3456, claude.ai, chatgpt.com) immediately have a live bridge.
+ * Re-injects content-script.js into all already-open http/https tabs (and all frames) when the extension loads/reloads
+ * so already-open tabs (including localhost:3456, claude.ai, chatgpt.com, and Antigravity iframes) immediately have a live bridge.
  */
 async function reinjectContentScriptsIntoOpenTabs() {
   try {
@@ -346,7 +354,7 @@ async function reinjectContentScriptsIntoOpenTabs() {
         if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) return;
         try {
           await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
+            target: { tabId: tab.id, allFrames: true },
             files: ['content-script.js']
           });
         } catch {
@@ -364,10 +372,10 @@ async function reinjectContentScriptsIntoOpenTabs() {
  */
 async function openAndSyncProviderTabs(providerId) {
   const allTabs = await chrome.tabs.query({});
+  let foundAgyTab = null;
+  let syncedAntigravity = false;
 
   if (providerId === 'antigravity' || providerId === 'all') {
-    let foundAgyTab = null;
-
     for (const tab of allTabs) {
       if (!tab.id || !tab.url || (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))) continue;
       if (tab.url.includes('localhost:3456') || tab.url.includes('127.0.0.1:3456')) continue;
@@ -384,13 +392,14 @@ async function openAndSyncProviderTabs(providerId) {
           if (r?.isAntigravityTab) {
             foundAgyTab = tab;
             if (r.providerId === 'antigravity' && r.rawText) {
-              await pushUsageToLocalServer({
+              const pushRes = await pushUsageToLocalServer({
                 providerId: 'antigravity',
                 rawText: r.rawText,
                 internalApi: r.internalApi,
                 pageUrl: r.pageUrl,
                 force: true
               });
+              if (pushRes?.ok) syncedAntigravity = true;
             }
           }
         }
@@ -410,10 +419,15 @@ async function openAndSyncProviderTabs(providerId) {
   setTimeout(() => scanAllOpenTabs(true), 900);
   setTimeout(() => scanAllOpenTabs(true), 2500);
   setTimeout(() => scanAllOpenTabs(true), 4500);
+
+  return {
+    foundAntigravityTab: Boolean(foundAgyTab),
+    syncedAntigravity
+  };
 }
 
 /**
- * Scans all open tabs in parallel using chrome.scripting.executeScript.
+ * Scans all open tabs (and their subframes) in parallel using chrome.scripting.executeScript.
  * Works immediately on already-open tabs in < 50ms!
  */
 async function scanAllOpenTabs(force = false) {
@@ -433,7 +447,7 @@ async function scanAllOpenTabs(force = false) {
       validTabs.map(async (tab) => {
         try {
           return await chrome.scripting.executeScript({
-            target: { tabId: tab.id, allFrames: false },
+            target: { tabId: tab.id, allFrames: true },
             func: extractIsolatedUsageFromTab,
             args: [Boolean(force)]
           });
@@ -539,7 +553,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'OPEN_AND_SYNC_PROVIDER') {
-    openAndSyncProviderTabs(msg.providerId || 'all').then(() => sendResponse({ ok: true, handled: true }));
+    openAndSyncProviderTabs(msg.providerId || 'all').then((res) =>
+      sendResponse({
+        ok: true,
+        handled: true,
+        foundAntigravityTab: Boolean(res?.foundAntigravityTab),
+        syncedAntigravity: Boolean(res?.syncedAntigravity)
+      })
+    );
     return true;
   }
 });

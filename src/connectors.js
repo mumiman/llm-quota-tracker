@@ -275,13 +275,50 @@ function applyParsedUsageToState(providerId, parsed, meta, state, acc) {
 
 /**
  * On macOS, directly inspects open tabs in Brave Browser / Google Chrome via AppleScript
- * when the user clicks "Sync Now" so it can sync open Usage pages even if the Extension wasn't reloaded.
+ * AND checks macOS Clipboard (`pbpaste`) when the user clicks "Sync Now".
  */
 async function syncOpenMacBrowserTabs(state, accounts) {
   if (process.platform !== 'darwin') {
     return { syncedProviders: [], foundTabs: [], appleEventsDisabled: false };
   }
 
+  const syncedProviders = [];
+  const foundTabs = [];
+  let appleEventsDisabled = false;
+
+  // 1. Check macOS Clipboard (pbpaste) for copied Antigravity Usage Popover text
+  await new Promise((resolve) => {
+    execFile('pbpaste', [], { timeout: 1500, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+      if (!err && stdout) {
+        const clip = String(stdout).trim();
+        if (
+          clip.length >= 45 &&
+          clip.length <= 2500 &&
+          /Gemini Models/i.test(clip) &&
+          /Claude and GPT models/i.test(clip) &&
+          /Gemini 4 Argon/i.test(clip) &&
+          /\d{1,3}%\s*left/i.test(clip) &&
+          !/\d{1,3}%\s*used/i.test(clip) &&
+          !clip.includes('|')
+        ) {
+          const parsed = parseUsagePageText('antigravity', clip);
+          if (parsed && parsed.ok) {
+            applyParsedUsageToState(
+              'antigravity',
+              parsed,
+              { accountLabel: 'Antigravity Clipboard Auto-Sync' },
+              state,
+              accounts
+            );
+            syncedProviders.push('antigravity');
+          }
+        }
+      }
+      resolve();
+    });
+  });
+
+  // 2. Check open tabs in Brave Browser / Google Chrome
   const script = `
 set outList to ""
 repeat with appName in {"Brave Browser", "Google Chrome"}
@@ -291,7 +328,8 @@ repeat with appName in {"Brave Browser", "Google Chrome"}
         repeat with w in windows
           repeat with t in tabs of w
             set u to URL of t
-            if u contains "claude.ai" or u contains "chatgpt.com" or u contains "kimi.com" or u contains "kimi.ai" or u contains "idx.google.com" then
+            set ttl to title of t
+            if u contains "claude.ai" or u contains "chatgpt.com" or u contains "kimi.com" or u contains "kimi.ai" or u contains "antigravity" or u contains "jetski" or u contains "workstations" or ttl contains "Antigravity" then
               try
                 set bodyTxt to execute t javascript "(document.querySelector('[role=\\"dialog\\"]') ? document.querySelector('[role=\\"dialog\\"]').innerText + '\\\\n' : '') + (document.body ? document.body.innerText : '')"
                 set outList to outList & "<<<TAB_START>>>" & u & "<<<URL_END>>>" & bodyTxt & "<<<TAB_END>>>"
@@ -311,11 +349,8 @@ return outList
   return new Promise((resolve) => {
     execFile('osascript', ['-e', script], { timeout: 3500, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
       if (err || !stdout) {
-        return resolve({ syncedProviders: [], foundTabs: [], appleEventsDisabled: false });
+        return resolve({ syncedProviders, foundTabs, appleEventsDisabled });
       }
-      const syncedProviders = [];
-      const foundTabs = [];
-      let appleEventsDisabled = false;
 
       const blocks = String(stdout).split('<<<TAB_START>>>').slice(1);
       for (const blk of blocks) {
@@ -330,7 +365,13 @@ return outList
         if (tabUrl.includes('claude.ai')) providerId = 'claude';
         else if (tabUrl.includes('chatgpt.com') || tabUrl.includes('openai.com')) providerId = 'codex';
         else if (tabUrl.includes('kimi.com') || tabUrl.includes('kimi.ai')) providerId = 'kimi';
-        else if (tabUrl.includes('idx.google.com') || /Gemini Models/i.test(bodyText)) providerId = 'antigravity';
+        else if (
+          (/Gemini Models/i.test(bodyText) && /Claude and GPT models/i.test(bodyText)) ||
+          tabUrl.includes('antigravity') ||
+          tabUrl.includes('jetski')
+        ) {
+          providerId = 'antigravity';
+        }
 
         if (!providerId) continue;
         if (!foundTabs.includes(providerId)) foundTabs.push(providerId);

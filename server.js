@@ -102,15 +102,32 @@ function createServer() {
         });
       }
 
-      // Sync usage directly from Electron BrowserWindow OAuth login or Bookmarklet
+      // Sync usage directly from Electron BrowserWindow OAuth login, Bookmarklet, or Antigravity Usage Popover
       if (req.method === 'POST' && pathname === '/api/accounts/session-sync') {
         const body = await readBody(req);
-        const { providerId, sessionUsedPct, weeklyUsedPct, sessionResetText, weeklyResetText, accountLabel } = body;
+        const { providerId, sessionUsedPct, weeklyUsedPct, sessionResetText, weeklyResetText, accountLabel, antigravityMetrics } = body;
         if (!providerId) {
           return sendJson(res, 400, { error: 'providerId is required' });
         }
 
         const acc = loadAccounts();
+        const state = loadState();
+
+        if (providerId === 'antigravity' && antigravityMetrics && typeof antigravityMetrics === 'object') {
+          applyParsedUsageToState(
+            'antigravity',
+            antigravityMetrics,
+            { accountLabel: accountLabel || 'Antigravity Usage Popover' },
+            state,
+            acc
+          );
+          saveAccounts(acc);
+          appendHistorySnapshot(state);
+          saveState(state);
+          const routing = evaluateRoutes(state, state.taskType || 'deep');
+          return sendJson(res, 200, { ok: true, state, routing, accounts: getMaskedAccounts() });
+        }
+
         if (acc.providers[providerId]) {
           acc.providers[providerId].connected = true;
           acc.providers[providerId].mode = 'browser_oauth';
@@ -119,7 +136,6 @@ function createServer() {
           saveAccounts(acc);
         }
 
-        const state = loadState();
         if (providerId === 'claude') {
           if (typeof sessionUsedPct === 'number') state.providers.claude.metrics[0].usedPct = Math.min(100, Math.max(0, sessionUsedPct));
           if (typeof weeklyUsedPct === 'number') {
