@@ -54,7 +54,7 @@
         <div id="traySummary" class="flex flex-wrap items-center gap-2 font-mono text-xs"></div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <span id="extStatusBadge" onclick="openAccountsModal()" class="cursor-pointer px-2 py-1 rounded-md border border-theme text-muted font-mono transition" title="Browser Extension Auto-Sync Status">
+        <span id="extStatusBadge" onclick="revealExtensionFolder()" class="cursor-pointer px-2 py-1 rounded-md border border-theme text-muted font-mono transition" title="Click to open browser-extension folder in Finder & copy path">
           ⚪ Checking Extension...
         </span>
         <button onclick="openAccountsModal()" class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition">
@@ -674,6 +674,27 @@
       return `<div class="text-[11px] truncate ${cls}" title="${p.lastStatus || ''}">${p.lastStatus || 'Waiting for Browser Extension Auto-Sync'}</div>`;
     }
 
+    async function revealExtensionFolder() {
+      try {
+        const res = await fetch('/api/accounts/open-app', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerId: 'extension_folder' })
+        });
+        const data = await res.json();
+        const extPath = data.extensionPath || '~/llm-quota-tracker/browser-extension';
+        try { await navigator.clipboard.writeText(extPath); } catch {}
+        showMainSyncBanner(
+          `<strong>📂 เปิดโฟลเดอร์ Extension ใน Finder และคัดลอก Path ให้แล้ว:</strong> <code>${extPath}</code><br/>` +
+          `1. ในหน้า <code>brave://extensions</code> กดปุ่ม <strong>Load unpacked</strong> (มุมซ้ายบน)<br/>` +
+          `2. กดปุ่มลัด <strong>Cmd + Shift + G</strong> แล้วกด <strong>Cmd + V</strong> เพื่อวาง Path <code>${extPath}</code> → กด Enter → กด <strong>Select</strong> (หรือลากโฟลเดอร์ <code>browser-extension</code> จาก Finder ที่เพิ่งเด้งขึ้นมา วางลงในหน้า <code>brave://extensions</code> ได้เลย!)`,
+          'amber'
+        );
+      } catch {
+        openAccountsModal();
+      }
+    }
+
     function renderTraySummary() {
       const extVer = document.documentElement.getAttribute('data-quota-ext');
       const extBadge = document.getElementById('extStatusBadge');
@@ -683,7 +704,7 @@
           extBadge.textContent = `🟢 Ext v${extVer} Live`;
         } else {
           extBadge.className = 'cursor-pointer px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-400 font-mono transition';
-          extBadge.textContent = '🟠 Reload Extension (v3.0)';
+          extBadge.textContent = '🟠 Load Extension (Click to Open Folder)';
         }
       }
 

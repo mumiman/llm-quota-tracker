@@ -149,17 +149,22 @@ function createServer() {
         return sendJson(res, 200, { ok: true, state, routing, accounts: getMaskedAccounts() });
       }
 
-      // Focus or launch native Desktop App (e.g. Antigravity.app on macOS)
+      // Focus or launch native Desktop App (e.g. Antigravity.app on macOS) or reveal browser-extension folder
       if (req.method === 'POST' && pathname === '/api/accounts/open-app') {
         const body = await readBody(req);
         const { providerId } = body;
         const acc = loadAccounts();
         const webUrl = acc.providers?.[providerId]?.webUrl || null;
-        if (process.platform === 'darwin' && providerId === 'antigravity') {
+        const extensionPath = path.join(__dirname, 'browser-extension');
+        if (process.platform === 'darwin') {
           const { execFile } = require('child_process');
-          execFile('open', ['-a', 'Antigravity'], () => {});
+          if (providerId === 'antigravity') {
+            execFile('open', ['-a', 'Antigravity'], () => {});
+          } else if (providerId === 'extension_folder') {
+            execFile('open', ['-R', extensionPath], () => {});
+          }
         }
-        return sendJson(res, 200, { ok: true, providerId, platform: process.platform, webUrl });
+        return sendJson(res, 200, { ok: true, providerId, platform: process.platform, webUrl, extensionPath });
       }
 
       // Parse copied usage page text (e.g. Ctrl+A, Ctrl+C from claude.ai/settings/usage or chatgpt.com)
