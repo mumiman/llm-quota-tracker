@@ -331,7 +331,7 @@ repeat with appName in {"Brave Browser", "Google Chrome"}
             set ttl to title of t
             if u contains "claude.ai" or u contains "chatgpt.com" or u contains "kimi.com" or u contains "kimi.ai" or u contains "antigravity" or u contains "jetski" or u contains "workstations" or ttl contains "Antigravity" then
               try
-                set bodyTxt to execute t javascript "(document.querySelector('[role=\\"dialog\\"]') ? document.querySelector('[role=\\"dialog\\"]').innerText + '\\\\n' : '') + (document.body ? document.body.innerText : '')"
+                set bodyTxt to execute t javascript "(function(){ var dlg = document.querySelector('[role=\\"dialog\\"]'); if (dlg && dlg.innerText && dlg.innerText.indexOf('Gemini Models') >= 0) return dlg.innerText; var mIdx = document.body && document.body.innerText ? document.body.innerText.lastIndexOf('Models & Usage') : -1; if (mIdx >= 0) return document.body.innerText.slice(mIdx); return (dlg ? dlg.innerText + '\\\\n' : '') + (document.body ? document.body.innerText : ''); })()"
                 set outList to outList & "<<<TAB_START>>>" & u & "<<<URL_END>>>" & bodyTxt & "<<<TAB_END>>>"
               on error errMsg
                 set outList to outList & "<<<TAB_START>>>" & u & "<<<URL_END>>>APPLE_EVENTS_ERR:" & errMsg & "<<<TAB_END>>>"
@@ -495,6 +495,7 @@ async function syncAllAccounts({ applyLocalEstimates = true } = {}) {
 function extractAntigravityPopoverBlock(text) {
   let searchEnd = text.length;
   let fallbackBlock = null;
+  let preferredBlock = null;
 
   while (searchEnd > 0) {
     const idx = text.lastIndexOf('Gemini Models', searchEnd);
@@ -507,15 +508,17 @@ function extractAntigravityPopoverBlock(text) {
       const endOffset = argonMatch ? argonMatch.index + 280 : candidate.length;
       const block = candidate.slice(0, endOffset);
       if (!fallbackBlock) fallbackBlock = block;
-      // Native Antigravity Usage popover / Models & Usage modal never uses "% used" or markdown tables
       if (!/\d{1,3}%\s*used/i.test(block) && !block.includes('|')) {
-        return block;
+        if (/Weekly Limit Remaining/i.test(block) || /Weekly limit/i.test(block)) {
+          return block;
+        }
+        if (!preferredBlock) preferredBlock = block;
       }
     }
     searchEnd = idx - 1;
   }
 
-  return fallbackBlock || text;
+  return preferredBlock || fallbackBlock || text;
 }
 
 function extractAntigravityResetDuration(part) {

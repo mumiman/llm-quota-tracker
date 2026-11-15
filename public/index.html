@@ -525,13 +525,13 @@
 
     async function openAndSyncProvider(providerId) {
       const urls = {
-        antigravity: 'https://antigravity.google.com/remote?settingsOpen=true&settingsScreen=General',
+        antigravity: 'https://antigravity.google.com/remote?settingsOpen=true&settingsScreen=Models',
         claude: 'https://claude.ai/settings/usage',
         codex: 'https://chatgpt.com/codex/settings/usage',
         kimi: 'https://www.kimi.com/'
       };
 
-      // 1. Signal Browser Extension (v3.4 OPEN_PROVIDER and SYNC_NOW)
+      // 1. Signal Browser Extension (v3.6 OPEN_PROVIDER and SYNC_NOW)
       document.documentElement.setAttribute('data-quota-open-provider', providerId);
       document.documentElement.setAttribute('data-quota-sync-request', String(Date.now()));
       window.postMessage({ type: 'QUOTA_TRACKER_OPEN_PROVIDER', providerId }, '*');
@@ -567,12 +567,23 @@
       el.innerHTML = html;
     }
 
+    function isExtensionVersionOutdated(ver) {
+      if (!ver) return true;
+      const parts = String(ver).split('.').map(n => Number(n) || 0);
+      const minParts = [3, 6, 0];
+      for (let i = 0; i < 3; i++) {
+        if ((parts[i] || 0) < minParts[i]) return true;
+        if ((parts[i] || 0) > minParts[i]) return false;
+      }
+      return false;
+    }
+
     async function syncNow() {
       const btn = document.getElementById('syncBtn');
       btn.textContent = 'Syncing Tabs...';
       btn.disabled = true;
       try {
-        // 1. Trigger Browser Extension v3.4 to immediately scan all open tabs (and iframes) & wait for completion ACK
+        // 1. Trigger Browser Extension v3.6 to immediately scan all open tabs (and iframes) & wait for completion ACK
         const extPromise = new Promise((resolve) => {
           const timer = setTimeout(() => {
             window.removeEventListener('message', onMsg);
@@ -608,15 +619,21 @@
         const macSynced = data.macTabSync?.syncedProviders || [];
         const timeStr = new Date(data.syncedAt).toLocaleTimeString();
 
-        if (extVer || !extResult.timedOut || macSynced.length > 0) {
+        if (extVer && isExtensionVersionOutdated(extVer) && !macSynced.includes('antigravity')) {
+          showMainSyncBanner(
+            `<strong>⚠ Browser Extension ของคุณยังเป็น v${extVer} (เวอร์ชันเก่า):</strong> Claude/Codex ซิงค์ได้แล้ว แต่ต้องเปิดแท็บ <code>brave://extensions</code> แล้วกดปุ่ม <strong>🔄 Reload</strong> ที่การ์ด <em>LLM Quota Tracker</em> เพื่ออัปเกรดเป็น <strong>v3.6.0</strong> สำหรับ Auto-Sync Antigravity (<code>antigravity.google.com/remote?...&settingsScreen=Models</code>) ครับ`,
+            'amber'
+          );
+          renderSyncStatusBox(`⚠ Extension v${extVer} needs Reload → v3.6.0 in brave://extensions`);
+        } else if (extVer || !extResult.timedOut || macSynced.length > 0) {
           const viaLabel = macSynced.length > 0
             ? `macOS Browser Tabs / Clipboard (${macSynced.join(', ')})`
-            : `Browser Extension v${extVer || '3.4'}`;
+            : `Browser Extension v${extVer || '3.6'}`;
           showMainSyncBanner(`<strong>✓ Synced at ${timeStr}</strong> via ${viaLabel}. Open usage tabs are up to date.`, 'emerald');
           renderSyncStatusBox(`✓ Synced at ${timeStr} via ${viaLabel}`);
         } else {
           showMainSyncBanner(
-            `<strong>⚠ Browser Extension ยังไม่ได้ Reload เป็น v3.4:</strong> กรุณาเปิดแท็บ <code>brave://extensions</code> แล้วกดปุ่ม <strong>🔄 Reload</strong> ที่การ์ด <em>LLM Quota Tracker</em>`,
+            `<strong>⚠ Browser Extension ยังไม่ได้ Reload เป็น v3.6:</strong> กรุณาเปิดแท็บ <code>brave://extensions</code> แล้วกดปุ่ม <strong>🔄 Reload</strong> ที่การ์ด <em>LLM Quota Tracker</em>`,
             'amber'
           );
           renderSyncStatusBox(`⚠ Please reload Extension in brave://extensions (Checked at ${timeStr})`);
@@ -940,9 +957,12 @@
       const extVer = document.documentElement.getAttribute('data-quota-ext');
       const extBadge = document.getElementById('extStatusBadge');
       if (extBadge) {
-        if (extVer) {
+        if (extVer && !isExtensionVersionOutdated(extVer)) {
           extBadge.className = 'cursor-pointer px-2 py-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 font-mono transition';
           extBadge.textContent = `🟢 Ext v${extVer} Live`;
+        } else if (extVer) {
+          extBadge.className = 'cursor-pointer px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-400 font-mono transition';
+          extBadge.textContent = `🟡 Ext v${extVer} (Reload in brave://extensions → v3.6)`;
         } else {
           extBadge.className = 'cursor-pointer px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-400 font-mono transition';
           extBadge.textContent = '🟠 Load Extension (Click to Open Folder)';

@@ -26,7 +26,7 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
 
     // 1. If this tab is the LLM Quota Tracker Dashboard (localhost:3456)
     if ((host === 'localhost' || host === '127.0.0.1') && port === '3456') {
-      document.documentElement.setAttribute('data-quota-ext', '3.5.0');
+      document.documentElement.setAttribute('data-quota-ext', '3.6.0');
       const syncReq = document.documentElement.getAttribute('data-quota-sync-request');
       const openReq = document.documentElement.getAttribute('data-quota-open-provider');
       if (syncReq) document.documentElement.removeAttribute('data-quota-sync-request');
@@ -194,13 +194,15 @@ async function extractIsolatedUsageFromTab(tryOpenAntigravityPopover = false) {
 
       if (!bestPopoverText && host.includes('antigravity.google.com')) {
         const bTxt = (document.body?.innerText || '').trim();
+        const mIdx = bTxt.lastIndexOf('Models & Usage');
+        const scope = mIdx >= 0 ? bTxt.slice(mIdx, mIdx + 2200) : bTxt;
         if (
-          bTxt.includes('Gemini Models') &&
-          bTxt.includes('Claude and GPT models') &&
-          bTxt.includes('Gemini 4 Argon') &&
-          /\d{1,3}\s*%/i.test(bTxt)
+          scope.includes('Gemini Models') &&
+          scope.includes('Claude and GPT models') &&
+          scope.includes('Gemini 4 Argon') &&
+          /\d{1,3}\s*%/i.test(scope)
         ) {
-          bestPopoverText = bTxt;
+          bestPopoverText = scope;
         }
       }
       return bestPopoverText;

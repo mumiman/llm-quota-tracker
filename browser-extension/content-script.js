@@ -1,9 +1,9 @@
 /**
- * Zero-Click Real-Time Content Script for LLM Quota Tracker (v3.4)
- * - Immediately sets `data-quota-ext="3.5.0"` on `localhost:3456` and wakes the MV3 Service Worker
+ * Zero-Click Real-Time Content Script for LLM Quota Tracker (v3.6)
+ * - Immediately sets `data-quota-ext="3.6.0"` on `localhost:3456` and wakes the MV3 Service Worker
  * - Bridges `Sync Now` (`QUOTA_TRACKER_SYNC_NOW`) and `Open & Auto-Sync` (`QUOTA_TRACKER_OPEN_PROVIDER`)
  * - Directly extracts live usage text on `claude.ai` (including `/new#settings/usage` modals),
- *   `chatgpt.com/settings/usage`, `kimi.com`, and Antigravity Usage popovers across all frames & shadow DOMs
+ *   `chatgpt.com/settings/usage`, `kimi.com`, and `antigravity.google.com/remote?settingsOpen=true&settingsScreen=Models`
  */
 (function () {
   const host = window.location.hostname || '';
@@ -12,8 +12,8 @@
 
   // 1. If running on the LLM Quota Tracker Dashboard (localhost:3456)
   if ((host === 'localhost' || host === '127.0.0.1') && port === '3456') {
-    document.documentElement.setAttribute('data-quota-ext', '3.5.0');
-    window.postMessage({ type: 'QUOTA_TRACKER_EXT_READY', version: '3.5.0' }, '*');
+    document.documentElement.setAttribute('data-quota-ext', '3.6.0');
+    window.postMessage({ type: 'QUOTA_TRACKER_EXT_READY', version: '3.6.0' }, '*');
 
     // Wake up the MV3 Service Worker immediately when the Dashboard loads or extension reloads
     try {
@@ -35,7 +35,7 @@
         try {
           chrome.runtime.sendMessage({ type: 'POLL_ALL_TABS_NOW' }, (resp) => {
             if (!chrome.runtime.lastError) {
-              document.documentElement.setAttribute('data-quota-ext', '3.5.0');
+              document.documentElement.setAttribute('data-quota-ext', '3.6.0');
               window.postMessage({ type: 'QUOTA_TRACKER_SYNC_DONE', syncedCount: resp?.syncedCount || 0 }, '*');
             }
           });
@@ -122,26 +122,48 @@
       return null;
     }
 
-    // Antigravity Web (antigravity.google.com/remote?settingsOpen=true&settingsScreen=General / Models) & Popover
+    // Antigravity Web (antigravity.google.com/remote?settingsOpen=true&settingsScreen=Models) & Popover
     const allEls = collectAllElements(document);
+    let bestPopoverText = '';
+    let bestPopoverLen = Infinity;
 
-    if (host.includes('antigravity.google.com')) {
-      const bodyText = (document.body?.innerText || '').trim();
-      if (
-        bodyText.includes('Gemini Models') &&
-        bodyText.includes('Claude and GPT models') &&
-        bodyText.includes('Gemini 4 Argon') &&
-        /\d{1,3}\s*%/i.test(bodyText)
-      ) {
-        return {
-          providerId: 'antigravity',
-          rawText: bodyText,
-          accountLabel: 'Antigravity Web (Models & Usage)'
-        };
+    for (const el of allEls) {
+      const tag = (el.tagName || '').toUpperCase();
+      if (tag === 'PRE' || tag === 'CODE' || tag === 'TEXTAREA' || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HTML') {
+        continue;
       }
+      if (isInsideCodeOrChatBubble(el)) continue;
+      const t = (el.innerText || '').trim();
+      if (t.length < 55 || t.length > 2600) continue;
+      if (
+        t.includes('Gemini Models') &&
+        t.includes('Claude and GPT models') &&
+        t.includes('Gemini 4 Argon') &&
+        /\d{1,3}\s*%/i.test(t) &&
+        !/\d{1,3}%\s*used/i.test(t) &&
+        !t.includes('|') &&
+        !t.includes('Resets in <1m')
+      ) {
+        if (t.length <= bestPopoverLen) {
+          bestPopoverLen = t.length;
+          bestPopoverText = t;
+        }
+      }
+    }
 
-      // If Settings modal opened on "General" (e.g. ?settingsOpen=true&settingsScreen=General), auto-click "Models" tab!
-      if (window.location.search.includes('settingsOpen=true') || bodyText.includes('Appearance')) {
+    if (!bestPopoverText && host.includes('antigravity.google.com')) {
+      const bodyText = (document.body?.innerText || '').trim();
+      const idx = bodyText.lastIndexOf('Models & Usage');
+      const scope = idx >= 0 ? bodyText.slice(idx, idx + 2200) : bodyText;
+      if (
+        scope.includes('Gemini Models') &&
+        scope.includes('Claude and GPT models') &&
+        scope.includes('Gemini 4 Argon') &&
+        /\d{1,3}\s*%/i.test(scope)
+      ) {
+        bestPopoverText = scope;
+      } else if (window.location.search.includes('settingsOpen=true') || bodyText.includes('Appearance')) {
+        // Fallback if settings modal opened on General instead of Models
         const now = Date.now();
         if (!window.__quotaLastModelsClick || now - window.__quotaLastModelsClick > 3500) {
           for (const el of allEls) {
@@ -156,32 +178,6 @@
               break;
             }
           }
-        }
-      }
-    }
-
-    let bestPopoverText = '';
-    let bestPopoverLen = Infinity;
-    for (const el of allEls) {
-      const tag = (el.tagName || '').toUpperCase();
-      if (tag === 'PRE' || tag === 'CODE' || tag === 'TEXTAREA' || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HTML') {
-        continue;
-      }
-      if (isInsideCodeOrChatBubble(el)) continue;
-      const t = (el.innerText || '').trim();
-      if (t.length < 55 || t.length > 2200) continue;
-      if (
-        t.includes('Gemini Models') &&
-        t.includes('Claude and GPT models') &&
-        t.includes('Gemini 4 Argon') &&
-        /\d{1,3}\s*%/i.test(t) &&
-        !/\d{1,3}%\s*used/i.test(t) &&
-        !t.includes('|') &&
-        !t.includes('Resets in <1m')
-      ) {
-        if (t.length <= bestPopoverLen) {
-          bestPopoverLen = t.length;
-          bestPopoverText = t;
         }
       }
     }
